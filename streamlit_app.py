@@ -1,3 +1,130 @@
+Okay, I'll modify the script so that if only one standard (non-fallback) model has remaining daily quota, it will be selected directly, bypassing the model router.
+
+Here's the updated code block for the main chat panel section. I've marked the changes with comments.
+
+# ────────────────────────── Main Chat Panel ─────────────────────
+
+current_sid = st.session_state.sid 
+if current_sid not in sessions: 
+    st.error("Selected chat session not found. Creating a new one.")
+    current_sid = _new_sid()
+    st.session_state.sid = current_sid
+    st.rerun() 
+
+chat_history = sessions[current_sid]["messages"] 
+
+# Display existing messages
+for msg_idx, msg in enumerate(chat_history):
+    role = msg["role"]
+    avatar_for_display = "👤" # Default for user
+    if role == "assistant":
+        model_key_in_message = msg.get("model")
+        if model_key_in_message == FALLBACK_MODEL_KEY:
+            avatar_for_display = FALLBACK_MODEL_EMOJI
+        elif model_key_in_message in EMOJI:
+            avatar_for_display = EMOJI[model_key_in_message]
+        else: # Handles old models (like 'E') or any other unknown/nil model key for past messages
+              # Default to F's emoji if F exists and is in EMOJI, else a generic bot.
+            avatar_for_display = EMOJI.get("F", "🤖") 
+            
+    with st.chat_message(role, avatar=avatar_for_display):
+        st.markdown(msg["content"])                                       
+
+# Input box
+if prompt := st.chat_input("Ask anything…"):
+    chat_history.append({"role":"user","content":prompt})
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(prompt)
+
+    # Determine which model to use
+    allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
+    
+    use_fallback_model = False
+    chosen_model_key_for_api = None # This will be 'A', 'B', '_FALLBACK_', etc.
+    model_id_to_use_for_api = None
+    max_tokens_for_api = None
+    avatar_for_response = "🤖" # Default assistant avatar
+
+    if not allowed_standard_models:
+        st.info(f"{FALLBACK_MODEL_EMOJI} All standard model daily quotas exhausted. Using free fallback model.")
+        chosen_model_key_for_api = FALLBACK_MODEL_KEY
+        model_id_to_use_for_api = FALLBACK_MODEL_ID
+        max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
+        avatar_for_response = FALLBACK_MODEL_EMOJI
+        use_fallback_model = True
+        logging.info(f"All standard quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
+    else:
+        # MODIFICATION START: Check if only one standard model is available
+        if len(allowed_standard_models) == 1:
+            chosen_model_key_for_api = allowed_standard_models[0]
+            logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
+        else: # Multiple standard models available, or more than one. Use router.
+            # The route_choice function itself handles the case where len(allowed_standard_models) might be 1 internally,
+            # but this external check ensures we explicitly state when we are skipping the router logic.
+            routed_key = route_choice(prompt, allowed_standard_models)
+            logging.info(f"Router selected model: '{routed_key}'.") # Log router's choice
+            chosen_model_key_for_api = routed_key
+        # MODIFICATION END
+
+        # Common setup for the chosen standard model (whether selected directly or by router)
+        model_id_to_use_for_api = MODEL_MAP[chosen_model_key_for_api]
+        max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
+        avatar_for_response = EMOJI[chosen_model_key_for_api]
+        # use_fallback_model remains False (initialized as False and not changed in this block)
+
+    with st.chat_message("assistant", avatar=avatar_for_response):
+        response_placeholder, full_response_content = st.empty(), ""
+        api_call_ok = True
+        for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
+            if error_message:
+                full_response_content = f"❗ **API Error**: {error_message}"
+                response_placeholder.error(full_response_content)
+                api_call_ok = False
+                break
+            if chunk:
+                full_response_content += chunk
+                response_placeholder.markdown(full_response_content + "▌")
+        response_placeholder.markdown(full_response_content)
+
+    # Append assistant message, storing the actual model key used (standard or fallback)
+    chat_history.append({"role":"assistant","content":full_response_content,"model": chosen_model_key_for_api})
+
+    if api_call_ok: 
+        if not use_fallback_model: # Only record use for standard, non-fallback models
+            record_use(chosen_model_key_for_api)
+        if sessions[current_sid]["title"] == "New chat":
+            sessions[current_sid]["title"] = _autoname(prompt)
+    
+    _save(SESS_FILE, sessions) 
+    st.rerun()
+
+
+I've inserted the logic to check len(allowed_standard_models).
+
+If it's 0, the fallback model is used (existing logic).
+
+If it's 1, that single available standard model is chosen directly, and a log message indicates this.
+
+If it's greater than 1, route_choice is called as before.
+
+The rest of the logic for setting model_id_to_use_for_api, max_tokens_for_api, and avatar_for_response correctly follows from the chosen_model_key_for_api determined by this new conditional block.
+
+The route_choice function itself has a line:
+
+if len(allowed) == 1:
+        logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
+        return allowed[0]
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+Python
+IGNORE_WHEN_COPYING_END
+
+With the new logic in the main chat panel, route_choice will no longer be called if len(allowed_standard_models) is 1. So, this specific condition inside route_choice will not be hit in that scenario. The direct selection and its logging will happen in the main panel. This is fine and achieves the desired outcome of skipping the router call.
+
+Here's the full modified script:
+
 #!/usr/bin/env python3
 """
 OpenRouter Streamlit Chat — Full Edition
@@ -254,7 +381,7 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F")
 
 
-    if len(allowed) == 1:
+    if len(allowed) == 1: # This condition will likely not be met if calling logic is correct
         logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
         return allowed[0]
 
@@ -510,12 +637,21 @@ if prompt := st.chat_input("Ask anything…"):
         use_fallback_model = True
         logging.info(f"All standard quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
     else:
-        routed_key = route_choice(prompt, allowed_standard_models)
-        chosen_model_key_for_api = routed_key
+        # MODIFICATION START: Check if only one standard model is available
+        if len(allowed_standard_models) == 1:
+            chosen_model_key_for_api = allowed_standard_models[0]
+            logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
+        else: # Multiple standard models available. Use router.
+            routed_key = route_choice(prompt, allowed_standard_models)
+            logging.info(f"Router selected model: '{routed_key}'.") # Log router's choice
+            chosen_model_key_for_api = routed_key
+        # MODIFICATION END
+
+        # Common setup for the chosen standard model (whether selected directly or by router)
         model_id_to_use_for_api = MODEL_MAP[chosen_model_key_for_api]
         max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
         avatar_for_response = EMOJI[chosen_model_key_for_api]
-        # use_fallback_model remains False
+        # use_fallback_model remains False (initialized as False and not changed in this block)
 
     with st.chat_message("assistant", avatar=avatar_for_response):
         response_placeholder, full_response_content = st.empty(), ""
@@ -556,3 +692,9 @@ if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
     ]
     logging.info(f"Relaunching with Streamlit: {' '.join(cmd)}")
     subprocess.run(cmd, check=False)
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+Python
+IGNORE_WHEN_COPYING_END
