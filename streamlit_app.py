@@ -210,7 +210,14 @@ def streamed(model: str, messages: list, max_tokens_out: int):
 def route_choice(user_msg: str, allowed: list[str]) -> str:
     if not allowed:
         logging.warning("route_choice called with empty allowed list.")
-        return allowed[0] if allowed else "F"
+        # Fallback if absolutely no models are allowed (e.g., all quotas exhausted before check)
+        # This case should ideally be prevented by upstream checks.
+        return "F" # Default to free tier model key if possible, or any valid key.
+
+    # If only one model is allowed, no need to call the router
+    if len(allowed) == 1:
+        logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
+        return allowed[0]
 
     system_lines = [
         "You are an intelligent model-routing assistant.",
@@ -227,20 +234,24 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         {"role": "system", "content": "\n".join(system_lines)},
         {"role": "user",   "content": user_msg}
     ]
-    payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages}
+    payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 5} # Added max_tokens for router
     try:
         r = api_post(payload_r)
         r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"].strip().upper()
         logging.info(f"Router raw response: {text}")
+        # Iterate through characters in response to find the first valid allowed model
         for ch in text:
             if ch in allowed:
                 return ch
     except Exception as e:
         logging.error(f"Router call error: {e}")
 
-    logging.warning("Router fallback to first allowed: %s", allowed[0])
-    return allowed[0]
+    # Fallback strategy: if router fails or gives invalid response, pick the first allowed model.
+    # This could be made smarter, e.g., prefer 'F' if available and in allowed.
+    fallback_choice = allowed[0]
+    logging.warning(f"Router fallback to first allowed model: {fallback_choice}")
+    return fallback_choice
 
 
 # ───────────────────── Credits Endpoint ───────────────────────
@@ -292,28 +303,75 @@ with st.sidebar:
         pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0)
         fill = int(pct * 100)
         color = "#4caf50" if pct > .5 else "#ff9800" if pct > .25 else "#f44336"
+        
+        # Improved Jar UI
         cols[i].markdown(f"""
-            <div style="width:44px;margin:auto;text-align:center;font-size:12px">
-              <div style="border:2px solid #555;border-radius:6px;height:60px;position:relative;overflow:hidden;background:#f0f0f0;">
-                <div style="position:absolute;bottom:0;width:100%;height:{fill}%;background:{color};"></div>
-                <div style="position:absolute;top:2px;width:100%;font-size:18px">{EMOJI[m]}</div>  
-                <div style="position:absolute;bottom:2px;width:100%;font-size:10px;font-weight:bold">{m}</div>
+            <div style="width:44px; margin:auto; text-align:center;">
+              <div style="
+                height:60px; /* Jar height */
+                border:1px solid #ccc; /* Lighter, thinner border */
+                border-radius:7px;    /* Slightly more rounded */
+                background:#f5f5f5; /* Jar empty background - light gray */
+                position:relative;
+                overflow:hidden; /* Clip fill */
+                box-shadow: inset 0 1px 2px rgba(0,0,0,0.07), /* Subtle inner shadow for depth */
+                            0 1px 1px rgba(0,0,0,0.05); /* Subtle outer shadow */
+              ">
+                <div style=" /* Fill element */
+                  position:absolute;
+                  bottom:0;
+                  width:100%;
+                  height:{fill}%;
+                  background:{color}; /* Main fill color (green, orange, red) */
+                  box-shadow: inset 0 2px 2px rgba(255,255,255,0.3); /* Highlight at top of fill */
+                  box-sizing: border-box;
+                "></div>
+                <div style=" /* Emoji */
+                  position:absolute;
+                  top:2px; /* Position from top */
+                  width:100%;
+                  font-size:18px; /* Emoji size */
+                  line-height:1; /* Consistent emoji positioning */
+                ">{EMOJI[m]}</div>  
+                <div style=" /* Model letter */
+                  position:absolute;
+                  bottom:2px; /* Position from bottom */
+                  width:100%;
+                  font-size:11px; /* Letter size */
+                  font-weight:bold;
+                  color:#555; /* Letter color (dark gray) */
+                  line-height:1;
+                ">{m}</div>
               </div>
-              <span>{'∞' if lim>900_000 else left}</span>
+              <span style=" /* Count below jar */
+                display:block; /* Takes full width of its 44px container */
+                margin-top:4px;
+                font-size:11px;
+                font-weight:600; /* Semi-bold */
+                color:#333; /* Count color (darker gray) */
+                line-height:1;
+              ">
+                {'∞' if lim > 900_000 else left}
+              </span>
             </div>""", unsafe_allow_html=True)
     st.markdown("---")
 
     # New Chat button
     if st.button("➕ New chat", use_container_width=True):
         st.session_state.sid = _new_sid()
+        st.experimental_rerun() # Rerun to reflect new chat selection immediately
 
     # Chat session list
     st.subheader("Chats")
-    for sid in sorted(sessions.keys(), key=int, reverse=True):
-        title = sessions[sid]["title"][:25] or "Untitled"
-        if st.button(title, key=sid, use_container_width=True):
-            st.session_state.sid = sid
-            st.experimental_rerun()
+    # Sort sessions by SID (timestamp based) in descending order for "latest first"
+    sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
+    for sid_key in sorted_sids:
+        # Use a unique key for each button, e.g., f"session_button_{sid_key}"
+        title = sessions[sid_key]["title"][:25] + ("…" if len(sessions[sid_key]["title"]) > 25 else "") or "Untitled"
+        if st.button(title, key=f"session_button_{sid_key}", use_container_width=True):
+            if st.session_state.sid != sid_key: # Only rerun if a different session is selected
+                st.session_state.sid = sid_key
+                st.experimental_rerun()
 
     st.markdown("---")
 
@@ -321,8 +379,8 @@ with st.sidebar:
     st.subheader("Model-Routing Map")
     st.caption(f"Router engine: `{ROUTER_MODEL_ID}`")
     with st.expander("Letters → Models"):
-        for k in MODEL_MAP:
-            st.markdown(f"**{k}**: {MODEL_DESCRIPTIONS[k]} (max_output={MAX_TOKENS[k]})")
+        for k_model in sorted(MODEL_MAP.keys()): # Sort for consistent display
+            st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
 
     st.markdown("---")
 
@@ -332,88 +390,117 @@ with st.sidebar:
         st.session_state.credits["used"],
         st.session_state.credits["remaining"],
     )
-    with st.expander("Account stats (credits)"):
-        if st.button("Refresh Credits", key="refresh_credits"):
+    with st.expander("Account stats (credits)", expanded=False): # Start collapsed
+        if st.button("Refresh Credits", key="refresh_credits_button"): # Ensure unique key
             st.session_state.credits = dict(zip(
                 ("total","used","remaining"),
                 get_credits()
             ))
             st.session_state.credits_ts = time.time()
+            # Update local vars after refresh to immediately show new values
             tot, used, rem = (
                 st.session_state.credits["total"],
                 st.session_state.credits["used"],
-                st.session_state.credits["remaining"]
+                st.session_state.credits["remaining"],
             )
+            st.experimental_rerun() # Rerun to update display
+
         if tot is None:
             st.warning("Could not fetch credits.")
         else:
             st.markdown(f"**Purchased:** {tot:.2f} cr")
             st.markdown(f"**Used:** {used:.2f} cr")
             st.markdown(f"**Remaining:** {rem:.2f} cr")
-            st.caption(f"Last updated: {datetime.fromtimestamp(st.session_state.credits_ts).strftime('%Y-%m-%d %H:%M:%S')}")
+            try:
+                last_updated_str = datetime.fromtimestamp(st.session_state.credits_ts).strftime('%Y-%m-%d %H:%M:%S')
+                st.caption(f"Last updated: {last_updated_str}")
+            except TypeError: # Handle potential None for credits_ts if initial fetch failed badly
+                st.caption("Last updated: N/A")
 
 
 # ────────────────────────── Main Chat Panel ─────────────────────
 
-sid = st.session_state.sid
-chat = sessions[sid]["messages"]
+current_sid = st.session_state.sid # Use a clear variable name
+if current_sid not in sessions: # Handle rare case where SID might be invalid
+    st.error("Selected chat session not found. Creating a new one.")
+    current_sid = _new_sid()
+    st.session_state.sid = current_sid
+    st.experimental_rerun()
+
+
+chat_history = sessions[current_sid]["messages"]
 
 # Display existing messages
-for msg in chat:
-    avatar = "👤" if msg["role"] == "user" else EMOJI.get(msg.get("model","F"), "🤖")
+for msg in chat_history:
+    avatar_key = msg.get("model", "F") if msg["role"] == "assistant" else "user"
+    avatar_map = {"user": "👤", **EMOJI} # Combine user avatar with model emojis
+    avatar = avatar_map.get(avatar_key, "🤖") # Default to robot if model key unknown
     with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
 
 # Input box
 if prompt := st.chat_input("Ask anything…"):
-    # Append user message
-    chat.append({"role":"user","content":prompt})
+    # Append user message to current chat history
+    chat_history.append({"role":"user","content":prompt})
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
 
     # Check quotas
-    allowed = [k for k in MODEL_MAP if remaining(k)[0] > 0]
-    if not allowed:
+    allowed_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
+    if not allowed_models:
         st.error("❗ All daily quotas exhausted. Try again tomorrow.")
+        # chat_history.pop() # Optional: remove user message if no model can process
         st.stop()
 
     # Route
-    chosen = route_choice(prompt, allowed)
-    model_id = MODEL_MAP[chosen]
-    max_out  = MAX_TOKENS[chosen]
+    chosen_model_key = route_choice(prompt, allowed_models)
+    model_id_to_use = MODEL_MAP[chosen_model_key]
+    max_tokens_for_model  = MAX_TOKENS[chosen_model_key]
 
     # Stream response
-    with st.chat_message("assistant", avatar=EMOJI[chosen]):
-        placeholder, full = st.empty(), ""
-        ok = True
-        for chunk, err in streamed(model_id, chat, max_out):
-            if err:
-                full = f"❗ **API Error**: {err}"
-                placeholder.error(full)
-                ok = False
+    with st.chat_message("assistant", avatar=EMOJI[chosen_model_key]):
+        response_placeholder, full_response_content = st.empty(), ""
+        api_call_ok = True
+        for chunk, error_message in streamed(model_id_to_use, chat_history, max_tokens_for_model):
+            if error_message:
+                full_response_content = f"❗ **API Error**: {error_message}"
+                response_placeholder.error(full_response_content)
+                api_call_ok = False
                 break
             if chunk:
-                full += chunk
-                placeholder.markdown(full + "▌")
-        placeholder.markdown(full)
+                full_response_content += chunk
+                response_placeholder.markdown(full_response_content + "▌")
+        response_placeholder.markdown(full_response_content)
 
     # Save assistant output
-    chat.append({"role":"assistant","content":full,"model":chosen})
+    chat_history.append({"role":"assistant","content":full_response_content,"model":chosen_model_key})
 
     # Record usage, auto-title, and persist
-    if ok:
-        record_use(chosen)
-        if sessions[sid]["title"] == "New chat":
-            sessions[sid]["title"] = _autoname(prompt)
-        _save(SESS_FILE, sessions)
-        # <-- no st.experimental_rerun() here
+    if api_call_ok: # Only record use if API call was successful
+        record_use(chosen_model_key)
+        if sessions[current_sid]["title"] == "New chat":
+            sessions[current_sid]["title"] = _autoname(prompt)
+    
+    _save(SESS_FILE, sessions) # Save session data regardless of API success (to keep user msg and err msg)
+    st.experimental_rerun() # Rerun to update quotas display and chat log cleanly
+
 
 # ───────────────────────── Self-Relaunch ──────────────────────
 
 if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
     os.environ["_IS_STRL"] = "1"
     port = os.getenv("PORT", "8501")
-    subprocess.run([
+    cmd = [
         sys.executable, "-m", "streamlit", "run", __file__,
-        "--server.port", port, "--server.address", "0.0.0.0"
-    ], check=False)
+        "--server.port", port, 
+        "--server.address", "0.0.0.0",
+        "--server.runOnSave", "false", # Explicitly set runOnSave if needed
+        "--client.toolbarMode", "minimal" # Example of another CLI arg
+    ]
+    # Remove Streamlit's own script arguments before passing to subprocess
+    # This is generally good practice if __file__ is passed directly.
+    # However, here __file__ is an argument to `streamlit run`.
+    # The subprocess.run call is fine as is.
+    
+    logging.info(f"Relaunching with Streamlit: {' '.join(cmd)}")
+    subprocess.run(cmd, check=False)
