@@ -32,27 +32,30 @@ FALLBACK_MODEL_MAX_TOKENS = 8000   # Max output tokens for the fallback model
 
 # Model definitions (standard, quota-tracked models)
 MODEL_MAP = {
-    "A": "google/gemini-2.5-pro-preview",
-    "B": "openai/o4-mini",
-    "C": "openai/chatgpt-4o-latest",
-    "D": "deepseek/deepseek-r1",
-    "F": "google/gemini-2.5-flash-preview"
+    "A": "google/gemini-2.5-pro-preview",    # Gemini 2.5 Pro
+    "B": "openai/o4-mini",                   # GPT-4o mini
+    "C": "openai/chatgpt-4o-latest",         # GPT-4o
+    "D": "deepseek/deepseek-r1",             # DeepSeek R1
+    "F": "google/gemini-2.5-flash-preview"   # Gemini 2.5 Flash
 }
 ROUTER_MODEL_ID = "google/gemini-2.0-flash-exp:free"
 MAX_HISTORY_CHARS_FOR_ROUTER = 3000  # Approx. 750 tokens for history context
 
-MAX_TOKENS = {
+MAX_TOKENS = { # Per-call max_tokens for API request (max output generation length)
     "A": 16_000, "B": 8_000, "C": 16_000,
     "D": 8_000, "F": 8_000
 }
 
-PLAN = { # Daily, Weekly, Monthly call limits
-    "A": (10, 10 * 7, 10 * 30),
-    "B": (10, 10 * 7, 10 * 30),
-    "C": (10, 10 * 7, 10 * 30),
-    "D": (10, 10 * 7, 10 * 30),
-    "F": (180, 500, 2000)
+# NEW QUOTA CONFIGURATION based on the provided table
+# (daily_msg, monthly_msg, daily_in_tokens, monthly_in_tokens, daily_out_tokens, monthly_out_tokens, 3hr_msg_limit, 3hr_window_seconds)
+NEW_PLAN_CONFIG = {
+    "A": (10, 200, 5000, 100000, 5000, 100000, 3, 3 * 3600),  # Gemini 2.5 Pro
+    "B": (10, 200, 5000, 100000, 5000, 100000, 0, 0),          # GPT-4o mini
+    "C": (10, 200, 5000, 100000, 5000, 100000, 0, 0),          # GPT-4o
+    "D": (10, 200, 5000, 100000, 5000, 100000, 0, 0),          # DeepSeek R1
+    "F": (150, 3000, 75000, 1500000, 75000, 1500000, 0, 0)     # Gemini 2.5 Flash
 }
+# Old PLAN dictionary is removed/replaced by NEW_PLAN_CONFIG
 
 EMOJI = {
     "A": "🌟", "B": "🔷", "C": "🟥", "D": "🟢", "F": "🌀"
@@ -100,7 +103,7 @@ def _save(path: Path, obj):
        logging.error(f"Failed to save file {path}: {e}")
 
 def _today():    return datetime.now(TZ).date().isoformat()
-def _yweek():    return datetime.now(TZ).strftime("%G-%V")
+# def _yweek():    return datetime.now(TZ).strftime("%G-%V") # Weekly no longer used
 def _ymonth():   return datetime.now(TZ).strftime("%Y-%m")
 
 def _load_app_config():
@@ -114,94 +117,225 @@ def _save_app_config(api_key_value: str):
 
 # --------------------- Quota Management (Revised) ------------------------
 _g_quota_data = None
-_g_quota_data_last_refreshed_stamps = {"d": None, "w": None, "m": None}
+_g_quota_data_last_refreshed_stamps = {"d": None, "m": None} # Removed "w"
 
-def _reset(block: dict, key: str, current_stamp: str, model_keys_zeros: dict) -> bool:
+# Define all usage keys for clarity
+USAGE_KEYS_PERIODIC = ["d_u", "m_u", "d_it_u", "m_it_u", "d_ot_u", "m_ot_u"]
+MODEL_A_3H_CALLS_KEY = "model_A_3h_calls"
+
+
+def _reset(block: dict, period_prefix: str, current_stamp: str, model_keys_zeros: dict) -> bool:
+    """ Resets usage data for a given period (d, m) if the timestamp has changed. """
     data_changed = False
-    usage_dict_key = f"{key}_u"
-    if block.get(key) != current_stamp:
-        block[key] = current_stamp
-        block[usage_dict_key] = model_keys_zeros.copy()
-        data_changed = True
-        logging.info(f"Quota period '{key}' reset for new stamp '{current_stamp}'.")
-    else:
-        if usage_dict_key not in block:
+    period_stamp_key = period_prefix # e.g., "d" or "m"
+    
+    if block.get(period_stamp_key) != current_stamp:
+        block[period_stamp_key] = current_stamp
+        # Reset all usage types for this period
+        for usage_type_suffix in ["_u", "_it_u", "_ot_u"]: # messages, input tokens, output tokens
+            usage_dict_key = f"{period_prefix}{usage_type_suffix}"
             block[usage_dict_key] = model_keys_zeros.copy()
-            data_changed = True
-            logging.info(f"Initialized missing usage dict '{usage_dict_key}' for stamp '{current_stamp}'.")
-        else:
-            current_period_usage_dict = block[usage_dict_key]
-            for model_k_map in model_keys_zeros.keys():
-                if model_k_map not in current_period_usage_dict:
-                    current_period_usage_dict[model_k_map] = 0
-                    data_changed = True
-                    logging.info(f"Added missing model '{model_k_map}' to usage dict '{usage_dict_key}' for stamp '{current_stamp}'.")
+        data_changed = True
+        logging.info(f"Quota period '{period_stamp_key}' reset for new stamp '{current_stamp}'.")
+    else:
+        # Ensure all usage dictionaries exist and have all current models
+        for usage_type_suffix in ["_u", "_it_u", "_ot_u"]:
+            usage_dict_key = f"{period_prefix}{usage_type_suffix}"
+            if usage_dict_key not in block:
+                block[usage_dict_key] = model_keys_zeros.copy()
+                data_changed = True
+                logging.info(f"Initialized missing usage dict '{usage_dict_key}' for stamp '{current_stamp}'.")
+            else:
+                # Ensure all models are in this existing usage dict
+                current_period_usage_dict = block[usage_dict_key]
+                for model_k_map in model_keys_zeros.keys():
+                    if model_k_map not in current_period_usage_dict:
+                        current_period_usage_dict[model_k_map] = 0
+                        data_changed = True
+                        logging.info(f"Added missing model '{model_k_map}' to usage dict '{usage_dict_key}' for stamp '{current_stamp}'.")
     return data_changed
 
 def _ensure_quota_data_is_current():
     global _g_quota_data, _g_quota_data_last_refreshed_stamps
-    now_d_stamp, now_w_stamp, now_m_stamp = _today(), _yweek(), _ymonth()
+    now_d_stamp, now_m_stamp = _today(), _ymonth()
     needs_full_refresh_logic = False
+
     if _g_quota_data is None:
         needs_full_refresh_logic = True
         logging.info("Quota data not in memory. Performing initial load and refresh.")
     elif ((_g_quota_data_last_refreshed_stamps["d"] != now_d_stamp) or
-          (_g_quota_data_last_refreshed_stamps["w"] != now_w_stamp) or
           (_g_quota_data_last_refreshed_stamps["m"] != now_m_stamp)):
         needs_full_refresh_logic = True
         logging.info(f"Quota period change detected. Refreshing quota data.")
-    if not needs_full_refresh_logic: return _g_quota_data
+
+    if not needs_full_refresh_logic:
+        # Still prune Model A's 3h calls even if no full refresh
+        if MODEL_A_3H_CALLS_KEY in _g_quota_data and "A" in NEW_PLAN_CONFIG and NEW_PLAN_CONFIG["A"][7] > 0:
+            _, _, _, _, _, _, _, three_hr_window_seconds = NEW_PLAN_CONFIG["A"]
+            current_time = time.time()
+            original_len = len(_g_quota_data[MODEL_A_3H_CALLS_KEY])
+            _g_quota_data[MODEL_A_3H_CALLS_KEY] = [
+                ts for ts in _g_quota_data[MODEL_A_3H_CALLS_KEY]
+                if current_time - ts < three_hr_window_seconds
+            ]
+            if len(_g_quota_data[MODEL_A_3H_CALLS_KEY]) != original_len:
+                logging.info(f"Pruned Model A 3-hour call timestamps. Original: {original_len}, New: {len(_g_quota_data[MODEL_A_3H_CALLS_KEY])}.")
+                # No save here, will be saved on next record_use or if other changes occur
+        return _g_quota_data
 
     q_loaded_data = _load(QUOTA_FILE, {})
-    data_was_modified = _g_quota_data is None
+    data_was_modified = _g_quota_data is None # Mark modified if loaded for the first time
+    
     active_model_keys = set(MODEL_MAP.keys())
     cleaned_during_load = False
-    for period_usage_key in ("d_u", "w_u", "m_u"):
-        if period_usage_key in q_loaded_data:
-            current_period_usage_dict = q_loaded_data[period_usage_key]
-            keys_in_usage = list(current_period_usage_dict.keys())
+
+    # Clean obsolete models from all usage dictionaries
+    for usage_key_template in USAGE_KEYS_PERIODIC: # e.g., "d_u", "m_it_u" etc.
+        if usage_key_template in q_loaded_data:
+            current_period_usage_dict = q_loaded_data[usage_key_template]
+            keys_in_usage = list(current_period_usage_dict.keys()) # Iterate over a copy
             for model_key_in_usage in keys_in_usage:
                 if model_key_in_usage not in active_model_keys:
                     try:
                         del current_period_usage_dict[model_key_in_usage]
-                        logging.info(f"Removed obsolete model key '{model_key_in_usage}' from quota usage '{period_usage_key}'.")
+                        logging.info(f"Removed obsolete model key '{model_key_in_usage}' from quota usage '{usage_key_template}'.")
                         cleaned_during_load = True
-                    except KeyError: pass
+                    except KeyError: pass # Should not happen if keys_in_usage is from the dict
     if cleaned_during_load: data_was_modified = True
+
+    # Remove old weekly quota fields if they exist
+    if "w" in q_loaded_data: del q_loaded_data["w"]; data_was_modified = True; logging.info("Removed obsolete 'w' field from quota data.")
+    if "w_u" in q_loaded_data: del q_loaded_data["w_u"]; data_was_modified = True; logging.info("Removed obsolete 'w_u' field from quota data.")
+
     current_model_zeros = {k: 0 for k in MODEL_MAP.keys()}
     reset_occurred_d = _reset(q_loaded_data, "d", now_d_stamp, current_model_zeros)
-    reset_occurred_w = _reset(q_loaded_data, "w", now_w_stamp, current_model_zeros)
     reset_occurred_m = _reset(q_loaded_data, "m", now_m_stamp, current_model_zeros)
-    if reset_occurred_d or reset_occurred_w or reset_occurred_m: data_was_modified = True
+    if reset_occurred_d or reset_occurred_m: data_was_modified = True
+
+    # Initialize or prune Model A's 3h call list
+    if MODEL_A_3H_CALLS_KEY not in q_loaded_data:
+        q_loaded_data[MODEL_A_3H_CALLS_KEY] = []
+        # data_was_modified = True # Not strictly modification if it's just init
+    if "A" in NEW_PLAN_CONFIG and NEW_PLAN_CONFIG["A"][7] > 0:
+        _, _, _, _, _, _, _, three_hr_window_seconds = NEW_PLAN_CONFIG["A"]
+        current_time = time.time()
+        original_len = len(q_loaded_data.get(MODEL_A_3H_CALLS_KEY, []))
+        q_loaded_data[MODEL_A_3H_CALLS_KEY] = [
+            ts for ts in q_loaded_data.get(MODEL_A_3H_CALLS_KEY, [])
+            if current_time - ts < three_hr_window_seconds
+        ]
+        if len(q_loaded_data[MODEL_A_3H_CALLS_KEY]) != original_len:
+             logging.info(f"Pruned Model A 3-hour call timestamps during full refresh. Original: {original_len}, New: {len(q_loaded_data[MODEL_A_3H_CALLS_KEY])}.")
+             data_was_modified = True
+
+
     if data_was_modified:
         _save(QUOTA_FILE, q_loaded_data)
-        logging.info("Quota data was modified (loaded/cleaned/reset) and saved to disk.")
+        logging.info("Quota data was modified (loaded/cleaned/reset/pruned) and saved to disk.")
+    
     _g_quota_data = q_loaded_data
-    _g_quota_data_last_refreshed_stamps = {"d": now_d_stamp, "w": now_w_stamp, "m": now_m_stamp}
+    _g_quota_data_last_refreshed_stamps = {"d": now_d_stamp, "m": now_m_stamp}
     return _g_quota_data
 
-def remaining(key: str):
-    current_q_data = _ensure_quota_data_is_current()
-    ud = current_q_data.get("d_u", {}).get(key, 0)
-    uw = current_q_data.get("w_u", {}).get(key, 0)
-    um = current_q_data.get("m_u", {}).get(key, 0)
-    if key not in PLAN:
-        logging.error(f"Attempted to get remaining quota for unknown key: {key}. MODEL_MAP: {list(MODEL_MAP.keys())}, PLAN: {list(PLAN.keys())}")
-        return 0, 0, 0
-    ld, lw, lm = PLAN[key]
-    return ld - ud, lw - uw, lm - um
+def get_quota_usage_and_limits(model_key: str):
+    """
+    Returns a dictionary with current usage and limits for a model.
+    Keys: 'used_daily_msg', 'limit_daily_msg', 'used_monthly_msg', 'limit_monthly_msg',
+          'used_daily_in_tokens', 'limit_daily_in_tokens', etc.
+          'used_3hr_msg', 'limit_3hr_msg' (if applicable)
+    """
+    if model_key not in NEW_PLAN_CONFIG:
+        logging.error(f"Model key '{model_key}' not in NEW_PLAN_CONFIG.")
+        return {}
 
-def record_use(key: str):
-    if key not in MODEL_MAP:
-        logging.warning(f"Attempted to record usage for non-standard or unknown model key: {key}")
-        return
     current_q_data = _ensure_quota_data_is_current()
-    for period_usage_key_suffix in ("d_u", "w_u", "m_u"):
-        if period_usage_key_suffix not in current_q_data:
-             current_q_data[period_usage_key_suffix] = {k_model: 0 for k_model in MODEL_MAP.keys()}
-        current_q_data[period_usage_key_suffix][key] = current_q_data[period_usage_key_suffix].get(key, 0) + 1
+    plan = NEW_PLAN_CONFIG[model_key]
+    
+    limits = {
+        "limit_daily_msg": plan[0], "limit_monthly_msg": plan[1],
+        "limit_daily_in_tokens": plan[2], "limit_monthly_in_tokens": plan[3],
+        "limit_daily_out_tokens": plan[4], "limit_monthly_out_tokens": plan[5],
+        "limit_3hr_msg": plan[6] if plan[6] > 0 else float('inf')
+    }
+
+    usage = {
+        "used_daily_msg": current_q_data.get("d_u", {}).get(model_key, 0),
+        "used_monthly_msg": current_q_data.get("m_u", {}).get(model_key, 0),
+        "used_daily_in_tokens": current_q_data.get("d_it_u", {}).get(model_key, 0),
+        "used_monthly_in_tokens": current_q_data.get("m_it_u", {}).get(model_key, 0),
+        "used_daily_out_tokens": current_q_data.get("d_ot_u", {}).get(model_key, 0),
+        "used_monthly_out_tokens": current_q_data.get("m_ot_u", {}).get(model_key, 0),
+        "used_3hr_msg": 0
+    }
+
+    if model_key == "A" and plan[6] > 0: # Model A with 3hr cap
+        # Pruning is handled in _ensure_quota_data_is_current
+        usage["used_3hr_msg"] = len(current_q_data.get(MODEL_A_3H_CALLS_KEY, []))
+
+    return {**usage, **limits}
+
+
+def is_model_available(model_key: str) -> bool:
+    """Checks if a model is available based on all its quotas."""
+    if model_key not in NEW_PLAN_CONFIG:
+        logging.warning(f"is_model_available: Model key '{model_key}' not in NEW_PLAN_CONFIG. Assuming unavailable.")
+        return False
+
+    stats = get_quota_usage_and_limits(model_key)
+    if not stats: return False # Error getting stats
+
+    # Check all limits
+    if stats["used_daily_msg"] >= stats["limit_daily_msg"]: return False
+    if stats["used_monthly_msg"] >= stats["limit_monthly_msg"]: return False
+    if stats["used_daily_in_tokens"] >= stats["limit_daily_in_tokens"]: return False
+    if stats["used_monthly_in_tokens"] >= stats["limit_monthly_in_tokens"]: return False
+    if stats["used_daily_out_tokens"] >= stats["limit_daily_out_tokens"]: return False
+    if stats["used_monthly_out_tokens"] >= stats["limit_monthly_out_tokens"]: return False
+    
+    if model_key == "A" and stats["limit_3hr_msg"] != float('inf'): # Check 3hr cap for Model A
+        if stats["used_3hr_msg"] >= stats["limit_3hr_msg"]: return False
+            
+    return True
+
+def get_remaining_daily_messages(model_key: str) -> int:
+    """Helper for UI display, returns remaining daily messages."""
+    if model_key not in NEW_PLAN_CONFIG: return 0
+    stats = get_quota_usage_and_limits(model_key)
+    if not stats: return 0
+    return max(0, stats["limit_daily_msg"] - stats["used_daily_msg"])
+
+
+def record_use(model_key: str, prompt_tokens: int, completion_tokens: int):
+    if model_key not in MODEL_MAP: # Only track for standard, quota-enabled models
+        logging.warning(f"Attempted to record usage for non-standard or unknown model key: {model_key}")
+        return
+
+    current_q_data = _ensure_quota_data_is_current() # Ensures data is fresh and dicts exist
+
+    # Increment message counts
+    current_q_data.setdefault("d_u", {}).setdefault(model_key, 0)
+    current_q_data["d_u"][model_key] += 1
+    current_q_data.setdefault("m_u", {}).setdefault(model_key, 0)
+    current_q_data["m_u"][model_key] += 1
+
+    # Increment token counts
+    current_q_data.setdefault("d_it_u", {}).setdefault(model_key, 0)
+    current_q_data["d_it_u"][model_key] += prompt_tokens
+    current_q_data.setdefault("m_it_u", {}).setdefault(model_key, 0)
+    current_q_data["m_it_u"][model_key] += prompt_tokens
+
+    current_q_data.setdefault("d_ot_u", {}).setdefault(model_key, 0)
+    current_q_data["d_ot_u"][model_key] += completion_tokens
+    current_q_data.setdefault("m_ot_u", {}).setdefault(model_key, 0)
+    current_q_data["m_ot_u"][model_key] += completion_tokens
+
+    # Handle Model A 3-hour cap
+    if model_key == "A" and NEW_PLAN_CONFIG["A"][6] > 0:
+        current_q_data.setdefault(MODEL_A_3H_CALLS_KEY, []).append(time.time())
+        # Pruning of this list is done in _ensure_quota_data_is_current
+
     _save(QUOTA_FILE, current_q_data)
-    logging.info(f"Recorded usage for model '{key}'. Quotas saved.")
+    logging.info(f"Recorded usage for model '{model_key}': 1 msg, {prompt_tokens}p, {completion_tokens}c tokens. Quotas saved.")
 
 # --------------------- Session Management -----------------------
 def _delete_unused_blank_sessions(keep_sid: str = None):
@@ -257,6 +391,8 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
 
 def streamed(model: str, messages: list, max_tokens_out: int):
     payload = {"model": model, "messages": messages, "stream": True, "max_tokens": max_tokens_out}
+    st.session_state.pop("last_stream_usage", None) # Clear previous usage before new stream
+
     try:
         with api_post(payload, stream=True) as r:
             for line in r.iter_lines():
@@ -267,19 +403,30 @@ def streamed(model: str, messages: list, max_tokens_out: int):
                     logging.warning(f"Unexpected non-event-stream line: {line_str}"); continue
                 data = line_str[6:].strip()
                 if data == "[DONE]": break
-                try: chunk = json.loads(data)
-                except json.JSONDecodeError: logging.error(f"Bad JSON chunk: {data}"); yield None, "Error decoding response chunk"; return
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    logging.error(f"Bad JSON chunk: {data}"); yield None, "Error decoding response chunk"; return
+                
                 if "error" in chunk:
                     msg = chunk["error"].get("message", "Unknown API error")
                     logging.error(f"API chunk error: {msg}"); yield None, msg; return
+
+                # Capture usage info if present in the chunk (OpenRouter sends it in the last data message)
+                if "usage" in chunk and chunk["usage"] is not None:
+                    st.session_state.last_stream_usage = chunk["usage"]
+                    logging.info(f"Captured stream usage: {chunk['usage']}")
+
                 delta = chunk["choices"][0]["delta"].get("content")
                 if delta is not None: yield delta, None
-    except ValueError as ve: logging.error(f"ValueError during streamed call setup: {ve}"); yield None, str(ve)
+    except ValueError as ve: # From api_post if key is invalid
+        logging.error(f"ValueError during streamed call setup: {ve}"); yield None, str(ve)
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code; text = e.response.text
         logging.error(f"Stream HTTPError {status_code}: {text}")
         yield None, f"HTTP {status_code}: An error occurred with the API provider. Details: {text}"
-    except Exception as e: logging.error(f"Streamed API call failed: {e}"); yield None, f"Failed to connect or make request: {e}"
+    except Exception as e:
+        logging.error(f"Streamed API call failed: {e}"); yield None, f"Failed to connect or make request: {e}"
 
 # ------------------------- Model Routing -----------------------
 # The ROUTER_MODEL_GUIDANCE dictionary is now defined in the Configuration section with anonymized descriptions
@@ -507,19 +654,29 @@ else:
             active_model_keys_for_display = sorted(MODEL_MAP.keys())
             if not active_model_keys_for_display: st.caption("No models configured for quota tracking.")
             else:
-                _ensure_quota_data_is_current()
+                _ensure_quota_data_is_current() # Make sure global quota data is fresh
                 quota_cols = st.columns(len(active_model_keys_for_display))
                 for i, m_key in enumerate(active_model_keys_for_display):
                     with quota_cols[i]:
-                        left_d, _, _ = remaining(m_key); lim_d, _, _  = PLAN.get(m_key, (0,0,0))
-                        is_unlimited = lim_d > 900_000
-                        if is_unlimited: pct_float, fill_width_val, left_display = 1.0, 100, "∞"
-                        elif lim_d > 0: pct_float = max(0.0, min(1.0, left_d / lim_d)); fill_width_val, left_display = int(pct_float * 100), str(left_d)
-                        else: pct_float, fill_width_val, left_display = 0.0, 0, "0"
-                        bar_color = "#f44336"
-                        if pct_float > 0.5: bar_color = "#4caf50"
-                        elif pct_float > 0.25: bar_color = "#ffc107"
+                        # Display remaining daily messages
+                        left_d_msgs = get_remaining_daily_messages(m_key)
+                        lim_d_msgs = NEW_PLAN_CONFIG.get(m_key, (0,))[0]
+
+                        is_unlimited = lim_d_msgs >= 900_000 # Arbitrary large number for "unlimited"
+                        if is_unlimited:
+                            pct_float, fill_width_val, left_display = 1.0, 100, "∞"
+                        elif lim_d_msgs > 0:
+                            pct_float = max(0.0, min(1.0, left_d_msgs / lim_d_msgs))
+                            fill_width_val = int(pct_float * 100)
+                            left_display = str(left_d_msgs)
+                        else: # limit is 0 or not defined
+                            pct_float, fill_width_val, left_display = 0.0, 0, "0"
+                        
+                        bar_color = "#f44336" # Red
+                        if pct_float > 0.5: bar_color = "#4caf50" # Green
+                        elif pct_float > 0.25: bar_color = "#ffc107" # Yellow
                         if is_unlimited: bar_color = "var(--primaryColor)"
+                        
                         emoji_char = EMOJI.get(m_key, "❔")
                         st.markdown(f"""<div class="compact-quota-item"><div class="cq-info">{emoji_char} <b>{m_key}</b></div><div class="cq-bar-track"><div class="cq-bar-fill" style="width: {fill_width_val}%; background-color: {bar_color};"></div></div><div class="cq-value" style="color: {bar_color};">{left_display}</div></div>""", unsafe_allow_html=True)
         st.divider()
@@ -586,26 +743,27 @@ else:
             st.error("API Key not configured or failed. Set in ⚙️ Settings.")
             if st.session_state.get("api_key_auth_failed"): time.sleep(0.5); st.rerun()
         else:
-            _ensure_quota_data_is_current()
-            allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
+            _ensure_quota_data_is_current() # Refresh quota data before checking
+            allowed_standard_models = [k for k in MODEL_MAP if is_model_available(k)] # Use new availability check
+
             use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (False, None, None, None, "🤖")
 
             if not allowed_standard_models:
-                logging.info(f"All standard quotas used. Using fallback: {FALLBACK_MODEL_ID}")
-                st.info(f"{FALLBACK_MODEL_EMOJI} Daily quotas exhausted. Using free fallback.")
+                logging.info(f"All standard model quotas (messages, tokens, or 3hr cap) exhausted. Using fallback: {FALLBACK_MODEL_ID}")
+                st.info(f"{FALLBACK_MODEL_EMOJI} All model quotas exhausted. Using free fallback.")
                 use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
             else:
                 routed_key_letter = route_choice(prompt, allowed_standard_models, chat_history)
                 if st.session_state.get("api_key_auth_failed"): st.error("API Auth failed during model routing. Check Key in Settings.")
-                elif routed_key_letter == FALLBACK_MODEL_KEY: # Router explicitly chose true fallback (e.g., no standard models in MODEL_MAP)
+                elif routed_key_letter == FALLBACK_MODEL_KEY: # Router explicitly chose true fallback
                     logging.warning(f"Router chose FALLBACK_MODEL_KEY. Using free fallback: {FALLBACK_MODEL_ID}.")
-                    st.warning(f"{FALLBACK_MODEL_EMOJI} Router determined no standard models. Using free fallback.")
+                    st.warning(f"{FALLBACK_MODEL_EMOJI} Router determined no standard models suitable. Using free fallback.")
                     use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
-                elif routed_key_letter not in MODEL_MAP or routed_key_letter not in allowed_standard_models: # Router chose a letter, but it's invalid/no quota
-                    logging.warning(f"Router chose '{routed_key_letter}' (invalid or no quota). Using free fallback {FALLBACK_MODEL_ID}.")
+                elif routed_key_letter not in MODEL_MAP or not is_model_available(routed_key_letter): # Router chose a letter, but it's invalid or now unavailable
+                    logging.warning(f"Router chose '{routed_key_letter}' (invalid or no quota/unavailable after check). Using free fallback {FALLBACK_MODEL_ID}.")
                     st.warning(f"{FALLBACK_MODEL_EMOJI} Model routing issue or chosen model '{routed_key_letter}' unavailable. Using free fallback.")
                     use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
-                else: # Valid standard model letter chosen
+                else: # Valid standard model letter chosen and still available
                     chosen_model_key = routed_key_letter
                     model_id_to_use = MODEL_MAP[chosen_model_key]
                     max_tokens_api = MAX_TOKENS[chosen_model_key]
@@ -620,20 +778,39 @@ else:
                 with st.chat_message("assistant", avatar=avatar_resp):
                     response_placeholder, full_response = st.empty(), ""
                     api_call_ok = True
-                    for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
+                    for chunk_content, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
                         if st.session_state.get("api_key_auth_failed"):
                             full_response = "❗ **API Authentication Error**: Update Key in ⚙️ Settings."
                             api_call_ok = False; break
                         if err_msg: full_response = f"❗ **API Error**: {err_msg}"; api_call_ok = False; break
-                        if chunk: full_response += chunk; response_placeholder.markdown(full_response + "▌")
+                        if chunk_content: full_response += chunk_content; response_placeholder.markdown(full_response + "▌")
                     response_placeholder.markdown(full_response)
-                chat_history.append({"role":"assistant","content":full_response,"model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY})
+                
+                # Retrieve token usage from session state
+                last_usage = st.session_state.pop("last_stream_usage", None)
+                prompt_tokens_used = 0
+                completion_tokens_used = 0
+                if last_usage:
+                    prompt_tokens_used = last_usage.get("prompt_tokens", 0)
+                    completion_tokens_used = last_usage.get("completion_tokens", 0)
+                    logging.info(f"API call completed. Tokens used: Prompt={prompt_tokens_used}, Completion={completion_tokens_used}")
+                else:
+                    logging.warning(f"Token usage information not found in session state after stream for model {model_id_to_use}.")
+
+                chat_history.append({
+                    "role": "assistant",
+                    "content": full_response,
+                    "model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY,
+                    "prompt_tokens": prompt_tokens_used if api_call_ok else 0,
+                    "completion_tokens": completion_tokens_used if api_call_ok else 0
+                })
+
                 if api_call_ok:
                     if not use_fallback and chosen_model_key and chosen_model_key in MODEL_MAP:
-                       record_use(chosen_model_key)
+                       record_use(chosen_model_key, prompt_tokens_used, completion_tokens_used)
                     if sessions[current_sid]["title"] == "New chat" and prompt:
                        sessions[current_sid]["title"] = _autoname(prompt)
-                       _delete_unused_blank_sessions(keep_sid=current_sid)
-                _save(SESS_FILE, sessions); st.rerun()
+                       _delete_unused_blank_sessions(keep_sid=current_sid) # This might save sessions
+                _save(SESS_FILE, sessions); st.rerun() # Save sessions after append and potential record_use
             elif st.session_state.get("api_key_auth_failed"): time.sleep(0.5); st.rerun()
             else: st.error("Unexpected error: Could not determine a model."); logging.error("Reached unexpected state: no model_id and no API auth failure.")
