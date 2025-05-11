@@ -259,7 +259,11 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
     active_api_key = st.session_state.get("openrouter_api_key")
     if not active_api_key:
         logging.warning("Router: API Key not set. Cannot make router call. Falling back.")
-        return "F" if "F" in allowed else (allowed[0] if allowed else "F") # Ensure fallback logic is sound
+        # Ensure fallback logic is sound: prefer "F" if available and allowed, else first allowed, else "F" as ultimate
+        if "F" in allowed: return "F"
+        if allowed: return allowed[0]
+        return "F" # Fallback to "F" if allowed is empty (though MODEL_MAP should exist)
+
 
     if not allowed:
         logging.warning("route_choice called with empty allowed list. Defaulting to 'F'.")
@@ -409,19 +413,19 @@ def load_custom_css():
             outline-offset: 2px;
         }
         [data-testid="stSidebar"] .stButton > button:disabled {
-            opacity: 0.6; 
+            opacity: 0.6;
             cursor: not-allowed;
         }
 
         /* Specific "New Chat" button - targeted by its key */
         [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button {
              background-color: var(--primary);
-             color: white; 
+             color: white;
              border-color: var(--primary);
         }
         [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:hover {
-             filter: brightness(90%); 
-             border-color: var(--primary); 
+             filter: brightness(90%);
+             border-color: var(--primary);
         }
 
 
@@ -437,10 +441,10 @@ def load_custom_css():
             height: 60px;
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            background: var(--secondary-background-color); 
+            background: var(--secondary-background-color);
             position: relative;
             overflow: hidden;
-            box-shadow: inset 0 1px 2px var(--shadow-sm, rgba(0,0,0,0.05)); 
+            box-shadow: inset 0 1px 2px var(--shadow-sm, rgba(0,0,0,0.05));
             margin-bottom: 4px;
         }
         .token-jar-fill {
@@ -462,7 +466,7 @@ def load_custom_css():
             width: 100%;
             font-size: 11px;
             font-weight: 600;
-            color: var(--text-color); 
+            color: var(--text-color);
             opacity: 0.8;
             line-height: 1;
         }
@@ -471,7 +475,7 @@ def load_custom_css():
             margin-top: 2px;
             font-size: 11px;
             font-weight: 600;
-            color: var(--text-color); 
+            color: var(--text-color);
             opacity: 0.9;
             line-height: 1;
         }
@@ -481,24 +485,24 @@ def load_custom_css():
             border: 1px solid var(--border-color);
             border-radius: 8px;
             margin-bottom: 1rem;
-            background-color: var(--background-color-primary); 
+            background-color: var(--background-color-primary);
         }
         .stExpander header {
             font-weight: 600;
             font-size: 0.95rem;
             padding: 0.6rem 1rem !important;
-            background-color: var(--secondary-background-color); 
+            background-color: var(--secondary-background-color);
             border-bottom: 1px solid var(--border-color);
             border-top-left-radius: 7px;
             border-top-right-radius: 7px;
-            color: var(--text-color); 
+            color: var(--text-color);
         }
         .stExpander header:hover {
             background-color: color-mix(in srgb, var(--text-color) 5%, var(--secondary-background-color));
         }
         .stExpander div[data-testid="stExpanderDetails"] {
              padding: 0.75rem 1rem;
-             background-color: var(--background-color-primary); 
+             background-color: var(--background-color-primary);
         }
 
         /* Chat Message Styling */
@@ -507,33 +511,33 @@ def load_custom_css():
             padding: 14px 20px;
             margin-bottom: 12px;
             box-shadow: 0 2px 5px var(--shadow);
-            border: 1px solid transparent; 
+            border: 1px solid transparent;
         }
 
         html[data-theme="light"] [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
-            background-color: #E3F2FD; 
-            border-left: 3px solid #1E88E5; 
-            color: #0D47A1; 
+            background-color: #E3F2FD;
+            border-left: 3px solid #1E88E5;
+            color: #0D47A1;
         }
         html[data-theme="dark"] [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
-            background-color: color-mix(in srgb, var(--primary) 15%, var(--secondary-background-color)); 
+            background-color: color-mix(in srgb, var(--primary) 15%, var(--secondary-background-color));
             border-left: 3px solid var(--primary);
             color: var(--text-color);
         }
 
         html[data-theme="light"] [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
-            background-color: #f9f9f9; 
-            border-left: 3px solid #757575; 
-            color: var(--color-gray-80, #333); 
+            background-color: #f9f9f9;
+            border-left: 3px solid #757575;
+            color: var(--color-gray-80, #333);
         }
         html[data-theme="dark"] [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
-            background-color: var(--secondary-background-color); 
-            border-left: 3px solid var(--color-gray-60, #888); 
+            background-color: var(--secondary-background-color);
+            border-left: 3px solid var(--color-gray-60, #888);
             color: var(--text-color);
         }
-        
+
         [data-testid="stChatMessage"] .stMarkdown p {
-            margin-bottom: 0.3rem; 
+            margin-bottom: 0.3rem;
             line-height: 1.5;
         }
 
@@ -541,7 +545,7 @@ def load_custom_css():
           margin-top: 1.5rem;
           margin-bottom: 1.5rem;
           border: 0;
-          border-top: 1px solid var(--border-color); 
+          border-top: 1px solid var(--border-color);
         }
     </style>
     """
@@ -611,6 +615,11 @@ with st.sidebar:
                 st.session_state.openrouter_api_key = new_api_key_input
                 _save_app_config(new_api_key_input)
                 st.success("API Key saved! The app will now use this key.")
+                # Refresh credits after saving a new key
+                st.session_state.credits = dict(zip(
+                    ("total","used","remaining"), get_credits()
+                ))
+                st.session_state.credits_ts = time.time()
                 time.sleep(1) # Brief pause for user to see message
                 st.rerun()
             elif not new_api_key_input:
@@ -627,11 +636,11 @@ with st.sidebar:
         lim, _, _  = PLAN[m_key]
         pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0)
         fill = int(pct * 100)
-        
-        if pct > .5: color = "#4caf50" 
-        elif pct > .25: color = "#ffc107" 
-        else: color = "#f44336" 
-        
+
+        if pct > .5: color = "#4caf50"
+        elif pct > .25: color = "#ffc107"
+        else: color = "#f44336"
+
         cols[i].markdown(f"""
             <div class="token-jar-container">
               <div class="token-jar">
@@ -641,7 +650,7 @@ with st.sidebar:
               </div>
               <span class="token-jar-remaining">{'∞' if lim > 900_000 else left}</span>
             </div>""", unsafe_allow_html=True)
-    st.divider() 
+    st.divider()
 
     current_session_is_truly_blank = False
     if st.session_state.sid in sessions:
@@ -650,7 +659,7 @@ with st.sidebar:
            current_session_data.get("title") == "New chat" and \
            not current_session_data.get("messages"):
             current_session_is_truly_blank = True
-    
+
     if st.button("➕ New chat", key="new_chat_button_top", use_container_width=True, disabled=current_session_is_truly_blank):
         new_session_id = _new_sid()
         st.session_state.sid = new_session_id
@@ -664,10 +673,10 @@ with st.sidebar:
     for sid_key in sorted_sids:
         title = sessions[sid_key].get("title", "Untitled")
         display_title = title[:25] + ("…" if len(title) > 25 else "")
-        
-        button_type = "secondary" 
+
+        button_type = "secondary"
         if st.session_state.sid == sid_key:
-            display_title = f"🔹 {display_title}" 
+            display_title = f"🔹 {display_title}"
 
         if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True):
             if st.session_state.sid != sid_key:
@@ -675,14 +684,14 @@ with st.sidebar:
                 if _delete_unused_blank_sessions(keep_sid=sid_key):
                     _save(SESS_FILE, sessions)
                 st.rerun()
-    st.divider() 
+    st.divider()
 
     st.subheader("Model-Routing Map")
     st.caption(f"Router engine: {ROUTER_MODEL_ID}")
-    with st.expander("Letters → Models", expanded=False): 
+    with st.expander("Letters → Models", expanded=False):
         for k_model in sorted(MODEL_MAP.keys()):
             st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
-    st.divider() 
+    st.divider()
 
     tot, used, rem = (
         st.session_state.credits.get("total"),
@@ -696,7 +705,7 @@ with st.sidebar:
             ))
             st.session_state.credits_ts = time.time()
             st.rerun()
-        if tot is None: 
+        if tot is None:
             if not st.session_state.get("openrouter_api_key"):
                 st.warning("Set API Key to fetch credits.")
             else:
@@ -704,7 +713,7 @@ with st.sidebar:
         else:
             st.markdown(f"**Purchased:** ${tot:.2f} cr")
             st.markdown(f"**Used:** ${used:.2f} cr")
-            st.markdown(f"**Remaining:** ${rem:.2f} cr") 
+            st.markdown(f"**Remaining:** ${rem:.2f} cr")
             try:
                 last_updated_str = datetime.fromtimestamp(st.session_state.credits_ts, TZ).strftime('%-d %b %Y, %H:%M:%S')
                 st.caption(f"Last updated: {last_updated_str}")
@@ -724,19 +733,20 @@ chat_history = sessions[current_sid]["messages"]
 
 for msg_idx, msg in enumerate(chat_history):
     role = msg["role"]
-    avatar_for_display = "👤" 
+    avatar_for_display = "👤"
     if role == "assistant":
         model_key_in_message = msg.get("model")
         if model_key_in_message == FALLBACK_MODEL_KEY: avatar_for_display = FALLBACK_MODEL_EMOJI
         elif model_key_in_message in EMOJI: avatar_for_display = EMOJI[model_key_in_message]
-        else: avatar_for_display = EMOJI.get("F", "🤖") 
-    
+        else: avatar_for_display = EMOJI.get("F", "🤖")
+
     with st.chat_message(role, avatar=avatar_for_display):
         st.markdown(msg["content"])
 
 # Check for API key before showing chat input
 if not st.session_state.get("openrouter_api_key"):
     st.warning("👋 Please set your OpenRouter API Key in the sidebar (under 'API Key Configuration') to start chatting.")
+    st.stop() # Stop execution here if no API key, prevents chat input from showing
 else:
     if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
         chat_history.append({"role":"user","content":prompt})
@@ -763,38 +773,32 @@ else:
                 chosen_model_key_for_api = allowed_standard_models[0]
                 logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
             else:
-                # Ensure route_choice can handle API key not being set (it does by falling back)
                 routed_key = route_choice(prompt, allowed_standard_models)
                 logging.info(f"Router selected model: '{routed_key}'.")
                 chosen_model_key_for_api = routed_key
-            
-            # This check is vital if route_choice could return a key for which MODEL_MAP entry is missing
-            if chosen_model_key_for_api not in MODEL_MAP:
-                logging.error(f"Router returned key '{chosen_model_key_for_api}' not in MODEL_MAP. Using fallback 'F'.")
-                chosen_model_key_for_api = "F" # Or some other sensible default
-                # Consider re-checking if "F" is allowed or has quota, or just use Fallback Model ID
-                if "F" not in MODEL_MAP or remaining("F")[0] <= 0: # if F is also not available
-                    st.error("Selected model via router is invalid, and fallback F is unavailable. Using global fallback.")
-                    chosen_model_key_for_api = FALLBACK_MODEL_KEY
-                    model_id_to_use_for_api = FALLBACK_MODEL_ID
-                    max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
-                    avatar_for_response = FALLBACK_MODEL_EMOJI
-                    use_fallback_model = True
 
-
-            if not use_fallback_model: # if not already set to fallback by above logic
+            if chosen_model_key_for_api not in MODEL_MAP: # Should ideally not happen if route_choice is robust
+                logging.error(f"Router returned key '{chosen_model_key_for_api}' not in MODEL_MAP. Critical error. Defaulting to fallback.")
+                # This is a more critical fallback.
+                st.error(f"Model routing error. Router chose '{chosen_model_key_for_api}' which is not defined. Using global fallback.")
+                chosen_model_key_for_api = FALLBACK_MODEL_KEY
+                model_id_to_use_for_api = FALLBACK_MODEL_ID
+                max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
+                avatar_for_response = FALLBACK_MODEL_EMOJI
+                use_fallback_model = True
+            else:
                 model_id_to_use_for_api = MODEL_MAP[chosen_model_key_for_api]
                 max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
                 avatar_for_response = EMOJI[chosen_model_key_for_api]
 
+
         with st.chat_message("assistant", avatar=avatar_for_response):
             response_placeholder, full_response_content = st.empty(), ""
             api_call_ok = True
-            # streamed function now checks for API key internally
             for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
                 if error_message:
                     full_response_content = f"❗ **API Error**: {error_message}"
-                    response_placeholder.error(full_response_content) 
+                    response_placeholder.error(full_response_content)
                     api_call_ok = False; break
                 if chunk:
                     full_response_content += chunk
@@ -805,8 +809,12 @@ else:
 
         if api_call_ok:
             if not use_fallback_model and chosen_model_key_for_api != FALLBACK_MODEL_KEY: # ensure we don't try to record use for fallback
-                record_use(chosen_model_key_for_api)
-            
+                if chosen_model_key_for_api in MODEL_MAP: # Double check key is valid before recording
+                     record_use(chosen_model_key_for_api)
+                else:
+                    logging.error(f"Attempted to record usage for an invalid key '{chosen_model_key_for_api}' after API call.")
+
+
             if sessions[current_sid]["title"] == "New chat" and sessions[current_sid]["messages"]:
                 sessions[current_sid]["title"] = _autoname(prompt)
                 _delete_unused_blank_sessions(keep_sid=current_sid)
