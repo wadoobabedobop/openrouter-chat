@@ -12,14 +12,14 @@ OpenRouter Streamlit Chat — Full Edition
 • In-app API Key configuration (via Settings panel or initial setup)
 """
 
-# ───────────────────────── Imports ─────────────────────────
+# ------------------------- Imports -------------------------
 import json, logging, os, sys, subprocess, time, requests
 from datetime import datetime, date
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import streamlit as st
 
-# ────────────────────────── Configuration ───────────────────
+# -------------------------- Configuration -------------------
 # OPENROUTER_API_KEY  is now managed via app_config.json and st.session_state
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT     = 120
@@ -58,11 +58,11 @@ EMOJI = {
 }
 
 MODEL_DESCRIPTIONS = {
-    "A": "🌟 (gemini-2.5-pro-preview) – top-quality, creative, expensive.",
-    "B": "🔷 (o4-mini) – mid-stakes reasoning, cost-effective.",
-    "C": "🟥 (chatgpt-4o-latest) – polished/empathetic, pricier.",
-    "D": "🟢 (deepseek-r1) – cheap factual reasoning.",
-    "F": "🌀 (gemini-2.5-flash-preview) – quick, free-tier, general purpose."
+    "A": "🌟 (gemini-2.5-pro-preview) - top-quality, creative, expensive.",
+    "B": "🔷 (o4-mini) - mid-stakes reasoning, cost-effective.",
+    "C": "🟥 (chatgpt-4o-latest) - polished/empathetic, pricier.",
+    "D": "🟢 (deepseek-r1) - cheap factual reasoning.",
+    "F": "🌀 (gemini-2.5-flash-preview) - quick, free-tier, general purpose."
 }
 
 TZ = ZoneInfo("Australia/Sydney")
@@ -72,7 +72,7 @@ QUOTA_FILE = DATA_DIR / "quotas.json"
 CONFIG_FILE = DATA_DIR / "app_config.json" # For storing API key and other app settings
 
 
-# ──────────────────────── Helper Functions ───────────────────────
+# ------------------------ Helper Functions -----------------------
 
 def _load(path: Path, default):
     try:
@@ -96,7 +96,7 @@ def _save_app_config(api_key_value: str):
     _save(CONFIG_FILE, config_data)
 
 
-# ───────────────────── Quota Management ────────────────────────
+# --------------------- Quota Management ------------------------
 
 def _reset(block: dict, key: str, stamp: str, zeros: dict):
     active_zeros = {k: 0 for k in MODEL_MAP}
@@ -143,7 +143,7 @@ def record_use(key: str):
     _save(QUOTA_FILE, quota)
 
 
-# ───────────────────── Session Management ───────────────────────
+# --------------------- Session Management ------------------------
 
 def _delete_unused_blank_sessions(keep_sid: str = None):
     sids_to_delete = []
@@ -171,10 +171,10 @@ def _new_sid():
 def _autoname(seed: str) -> str:
     words = seed.strip().split()
     cand = " ".join(words[:3]) or "Chat"
-    return (cand[:25] + "…") if len(cand) > 25 else cand
+    return (cand[:25] + "…" if len(cand) > 25 else cand
 
 
-# ─────────────────────────── Logging ────────────────────────────
+# -------------------------- Logging ---------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -185,7 +185,7 @@ logging.basicConfig(
 def is_api_key_valid(api_key_value):
     return api_key_value and isinstance(api_key_value, str) and api_key_value.startswith("sk-or-")
 
-# ────────────────────────── API Calls ──────────────────────────
+# -------------------------- API Calls --------------------------
 def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT):
     active_api_key = st.session_state.get("openrouter_api_key")
     if not is_api_key_valid(active_api_key): # Should be caught by main app logic, but defensive check
@@ -196,7 +196,7 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
         "Authorization": f"Bearer {active_api_key}",
         "Content-Type":  "application/json"
     }
-    logging.info(f"POST /chat/completions → model={payload.get('model')}, stream={stream}, max_tokens={payload.get('max_tokens')}")
+    logging.info(f"POST /chat/completions - model={payload.get('model')}, stream={stream}, max_tokens={payload.get('max_tokens')}")
     try:
         response = requests.post(
             f"{OPENROUTER_API_BASE}/chat/completions",
@@ -258,7 +258,7 @@ def streamed(model: str, messages: list, max_tokens_out: int):
         yield None, f"Failed to connect or make request: {e}"
 
 
-# ───────────────────────── Model Routing ───────────────────────
+# ------------------------- Model Routing ------------------------
 def route_choice(user_msg: str, allowed: list[str]) -> str:
     # API key syntactic validity is checked by api_post.
     # api_key_auth_failed will be set by api_post if 401 occurs.
@@ -303,7 +303,7 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
     logging.warning(f"Router fallback to model: {fallback_choice}")
     return fallback_choice
 
-# ───────────────────── Credits Endpoint ───────────────────────
+# --------------------- Credits Endpoint ------------------------
 def get_credits():
     active_api_key = st.session_state.get("openrouter_api_key")
     if not is_api_key_valid(active_api_key):
@@ -336,7 +336,7 @@ def get_credits():
         logging.warning(f"Could not fetch /credits: {e}")
         return None, None, None
 
-# ───────────────────────── UI Styling ──────────────────────────
+# ------------------------- UI Styling --------------------------
 def load_custom_css():
     css = """
     <style>
@@ -557,7 +557,7 @@ def load_custom_css():
     st.markdown(css, unsafe_allow_html=True)
 
 
-# ───────────────── API Key State Initialization ───────────────────
+# ---------------- API Key State Initialization ------------------
 if "openrouter_api_key" not in st.session_state:
     app_conf = _load_app_config()
     st.session_state.openrouter_api_key = app_conf.get("openrouter_api_key", None)
@@ -569,7 +569,7 @@ api_key_is_syntactically_valid = is_api_key_valid(st.session_state.get("openrout
 app_requires_api_key_setup = not api_key_is_syntactically_valid or st.session_state.api_key_auth_failed
 
 
-# ──────────────────── Main Application Rendering ───────────────────
+# ------------------- Main Application Rendering ------------------
 if app_requires_api_key_setup:
     # --- RENDER API KEY SETUP PAGE ---
     st.set_page_config(page_title="OpenRouter API Key Setup", layout="centered")
@@ -615,7 +615,7 @@ if app_requires_api_key_setup:
             else:
                 st.success("API Key saved and validated! Initializing application...")
                 if "credits" not in st.session_state: st.session_state.credits = {} # Ensure credits dict exists
-                st.session_state.credits = dict(zip(("total", "used", "remaining"), fetched_credits_data))
+                st.session_state.credits = dict(zip(("total", "used", "remaining"), fetched_credits_data or (0,0,0))) # Default on failure
                 st.session_state.credits_ts = time.time()
                 time.sleep(1.5)
                 st.rerun() # Proceed to full app
@@ -660,245 +660,4 @@ else:
     # Initialize credits if not already set (e.g., first run after successful key setup)
     # or if API key might have changed and needs re-fetch.
     # The get_credits call itself handles setting api_key_auth_failed if 401 occurs.
-    if "credits" not in st.session_state or time.time() - st.session_state.get("credits_ts", 0) > 3600 : # Refresh hourly or if not set
-        with st.spinner("Fetching account credits..."):
-            credits_data = get_credits()
-        if st.session_state.get("api_key_auth_failed"):
-            st.error("Failed to fetch credits due to API key authentication issue. Please check your key in Settings.")
-            # Force a rerun, which will take user to setup page if auth_failed is true
-            time.sleep(1) # Show error briefly
-            st.rerun()
-            st.stop() # Stop further rendering in this run
-        
-        st.session_state.credits = dict(zip(
-            ("total", "used", "remaining"),
-            credits_data if credits_data != (None,None,None) else (0,0,0) # default if fetch fails for non-auth reason
-        ))
-        st.session_state.credits_ts = time.time()
-
-
-    # ───────────────────────── Sidebar ─────────────────────────────
-    with st.sidebar:
-        if st.button("⚙️ Settings", key="toggle_settings_button", use_container_width=True):
-            st.session_state.settings_panel_open = not st.session_state.get("settings_panel_open", False)
-
-        if st.session_state.get("settings_panel_open"):
-            st.markdown("<div class='settings-panel'>", unsafe_allow_html=True)
-            st.subheader("API Key Configuration")
-            
-            current_api_key_in_panel = st.session_state.get("openrouter_api_key") # Should be valid here
-            key_display = f"••••••••{current_api_key_in_panel[-4:]}" if len(current_api_key_in_panel) > 8 else "••••"
-            st.caption(f"Current key: {key_display}")
-
-            new_key_input_sidebar = st.text_input(
-                "Enter new OpenRouter API Key (optional)", type="password", key="api_key_sidebar_input", placeholder="sk-or-..."
-            )
-            if st.button("Save New API Key", key="save_api_key_sidebar_button", use_container_width=True):
-                if is_api_key_valid(new_key_input_sidebar):
-                    st.session_state.openrouter_api_key = new_key_input_sidebar
-                    _save_app_config(new_key_input_sidebar)
-                    st.session_state.api_key_auth_failed = False # Reset auth failure flag for the new key
-
-                    # Attempt to validate the new key immediately
-                    with st.spinner("Validating new API key..."):
-                        credits_data = get_credits() # This will use the new key and set auth_failed if it's 401
-                    
-                    if st.session_state.api_key_auth_failed:
-                        st.error("New API Key failed authentication. Please check it and try again. Reverting to previous key if it was valid, or prompting setup.")
-                        # Potentially revert or rely on next rerun to go to full setup if old key also fails now.
-                        # For simplicity, if new key fails, the app will eventually go to setup mode on next API call / rerun.
-                    else:
-                        st.success("New API Key saved and validated!")
-                        st.session_state.credits = dict(zip(("total","used","remaining"), credits_data))
-                        st.session_state.credits_ts = time.time()
-                    
-                    st.session_state.settings_panel_open = False
-                    time.sleep(0.8)
-                    st.rerun()
-                elif not new_key_input_sidebar: # Only an error if they try to save an empty one
-                    st.warning("API Key field is empty. No changes made.")
-                else: # new_key_input is present but syntactically invalid
-                    st.error("Invalid API key format. It should start with 'sk-or-'.")
-            
-            if st.button("Close Settings Panel", key="close_settings_panel_button_sidebar", use_container_width=False):
-                st.session_state.settings_panel_open = False
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.divider()
-
-        logo_title_cols = st.columns([1, 4], gap="small")
-        with logo_title_cols[0]:
-            st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50)
-        with logo_title_cols[1]:
-            st.title("OpenRouter Chat")
-        st.divider()
-
-        st.subheader("Daily Jars (Msgs Left)")
-        active_model_keys = sorted(MODEL_MAP.keys())
-        cols = st.columns(len(active_model_keys))
-        for i, m_key in enumerate(active_model_keys):
-            left, _, _ = remaining(m_key)
-            lim, _, _  = PLAN[m_key]
-            pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0)
-            fill = int(pct * 100)
-            if pct > .5: color = "#4caf50"; elif pct > .25: color = "#ffc107"; else: color = "#f44336"
-            cols[i].markdown(f"""
-                <div class="token-jar-container">
-                  <div class="token-jar"><div class="token-jar-fill" style="height:{fill}%; background-color:{color};"></div>
-                    <div class="token-jar-emoji">{EMOJI[m_key]}</div><div class="token-jar-key">{m_key}</div>
-                  </div><span class="token-jar-remaining">{'∞' if lim > 900_000 else left}</span></div>""", unsafe_allow_html=True)
-        st.divider()
-
-        current_session_is_truly_blank = (st.session_state.sid in sessions and
-                                          sessions[st.session_state.sid].get("title") == "New chat" and
-                                          not sessions[st.session_state.sid].get("messages"))
-        if st.button("➕ New chat", key="new_chat_button_top", use_container_width=True, disabled=current_session_is_truly_blank):
-            st.session_state.sid = _new_sid()
-            _save(SESS_FILE, sessions)
-            st.rerun()
-        elif current_session_is_truly_blank:
-            st.caption("Current chat is empty. Add a message or switch.")
-
-        st.subheader("Chats")
-        sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
-        for sid_key in sorted_sids:
-            title = sessions[sid_key].get("title", "Untitled")
-            display_title = title[:25] + ("…" if len(title) > 25 else "")
-            if st.session_state.sid == sid_key: display_title = f"🔹 {display_title}"
-            if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True):
-                if st.session_state.sid != sid_key:
-                    st.session_state.sid = sid_key
-                    if _delete_unused_blank_sessions(keep_sid=sid_key): _save(SESS_FILE, sessions)
-                    st.rerun()
-        st.divider()
-
-        st.subheader("Model-Routing Map")
-        st.caption(f"Router engine: {ROUTER_MODEL_ID}")
-        with st.expander("Letters → Models", expanded=False):
-            for k_model in sorted(MODEL_MAP.keys()):
-                st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
-        st.divider()
-
-        with st.expander("Account stats (credits)", expanded=False):
-            if st.button("Refresh Credits", key="refresh_credits_button"):
-                with st.spinner("Refreshing credits..."):
-                    credits_data = get_credits() # Uses session_state key, sets auth_failed on 401
-                
-                if st.session_state.get("api_key_auth_failed"):
-                    st.error("Failed to refresh credits: API Key authentication error.")
-                    time.sleep(1)
-                    st.rerun() # Will go to setup page
-                else:
-                    st.session_state.credits = dict(zip(("total","used","remaining"), credits_data if credits_data != (None,None,None) else (0,0,0) ))
-                    st.session_state.credits_ts = time.time()
-                    st.rerun() # To update display
-
-            tot = st.session_state.credits.get("total")
-            used = st.session_state.credits.get("used")
-            rem = st.session_state.credits.get("remaining")
-
-            if tot is None or used is None or rem is None : # Credits couldn't be fetched for non-auth reason
-                 st.warning("Could not fetch credit information. This might be a temporary issue with OpenRouter or network.")
-            else:
-                st.markdown(f"**Purchased:** ${float(tot):.2f} cr")
-                st.markdown(f"**Used:** ${float(used):.2f} cr")
-                st.markdown(f"**Remaining:** ${float(rem):.2f} cr")
-            try:
-                last_updated_str = datetime.fromtimestamp(st.session_state.credits_ts, TZ).strftime('%-d %b %Y, %H:%M:%S')
-                st.caption(f"Last updated: {last_updated_str}")
-            except (TypeError, KeyError): st.caption("Last updated: N/A")
-
-
-    # ────────────────────────── Main Chat Panel ─────────────────────
-    current_sid = st.session_state.sid
-    if current_sid not in sessions: 
-        st.error("Selected chat session not found. Creating a new one.")
-        current_sid = _new_sid(); st.session_state.sid = current_sid
-        _save(SESS_FILE, sessions); st.rerun()
-
-    chat_history = sessions[current_sid]["messages"]
-    for msg in chat_history:
-        role = msg["role"]; avatar = "👤"
-        if role == "assistant":
-            m_key = msg.get("model")
-            avatar = FALLBACK_MODEL_EMOJI if m_key == FALLBACK_MODEL_KEY else EMOJI.get(m_key, "🤖")
-        with st.chat_message(role, avatar=avatar): st.markdown(msg["content"])
-
-    if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
-        chat_history.append({"role":"user","content":prompt})
-        with st.chat_message("user", avatar="👤"): st.markdown(prompt)
-
-        allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
-        use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (
-            False, None, None, None, "🤖"
-        )
-
-        if not allowed_standard_models:
-            st.info(f"{FALLBACK_MODEL_EMOJI} All standard model daily quotas exhausted. Using free fallback model.")
-            use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (
-                True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI
-            )
-            logging.info(f"Using fallback (all quotas used): {FALLBACK_MODEL_ID}")
-        else:
-            routed_key = allowed_standard_models[0] if len(allowed_standard_models) == 1 else route_choice(prompt, allowed_standard_models)
-            if st.session_state.get("api_key_auth_failed"): # route_choice might set this
-                 st.error("API Authentication failed during model routing. Please check API Key in Settings.")
-                 st.rerun() # Will go to setup page
-                 st.stop()
-
-            logging.info(f"Router selected: '{routed_key}'. Allowed: {allowed_standard_models}")
-            if routed_key not in MODEL_MAP or routed_key not in allowed_standard_models: # Router error or unexpected choice
-                st.warning(f"{FALLBACK_MODEL_EMOJI} Model routing issue (chose '{routed_key}'). Using free fallback.")
-                use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (
-                    True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI
-                )
-                logging.info(f"Using fallback (router issue): {FALLBACK_MODEL_ID}")
-            else:
-                chosen_model_key = routed_key
-                model_id_to_use = MODEL_MAP[chosen_model_key]
-                max_tokens_api = MAX_TOKENS[chosen_model_key]
-                avatar_resp = EMOJI[chosen_model_key]
-        
-        with st.chat_message("assistant", avatar=avatar_resp):
-            response_placeholder, full_response = st.empty(), ""
-            api_call_ok = True
-            for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
-                if st.session_state.get("api_key_auth_failed"): # streamed might set this
-                    full_response = "❗ **API Authentication Error**: Your API Key is invalid or revoked. Please update it in Settings."
-                    api_call_ok = False; break
-                if err_msg:
-                    full_response = f"❗ **API Error**: {err_msg}"
-                    api_call_ok = False; break
-                if chunk: full_response += chunk; response_placeholder.markdown(full_response + "▌")
-            response_placeholder.markdown(full_response)
-
-        chat_history.append({"role":"assistant","content":full_response,"model": chosen_model_key})
-        if api_call_ok and not use_fallback and chosen_model_key in MODEL_MAP: record_use(chosen_model_key)
-        if sessions[current_sid]["title"] == "New chat" and chat_history:
-            sessions[current_sid]["title"] = _autoname(prompt)
-            _delete_unused_blank_sessions(keep_sid=current_sid)
-        _save(SESS_FILE, sessions)
-        
-        if st.session_state.get("api_key_auth_failed"):
-             st.error("An API authentication error occurred. Redirecting to API Key setup...")
-             time.sleep(1.5) # Show error briefly
-        st.rerun() # Rerun to update UI, or redirect to setup if auth failed
-
-
-# ───────────────────────── Self-Relaunch ──────────────────────
-if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
-    os.environ["_IS_STRL"] = "1"
-    port = os.getenv("PORT", "8501")
-    cmd = [sys.executable, "-m", "streamlit", "run", __file__, "--server.port", port, "--server.address", "0.0.0.0"]
-    logging.info(f"Relaunching with Streamlit: {' '.join(cmd)}")
-    try:
-        subprocess.run(cmd, check=True)
-    except FileNotFoundError: # e.g. streamlit not found
-        logging.error(f"Failed to relaunch: Streamlit command not found. Ensure Streamlit is installed and in PATH.")
-        sys.exit(1)
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Streamlit process failed with error code {e.returncode}.")
-        sys.exit(e.returncode)
-    except Exception as e: # Catch any other exception during relaunch
-        logging.error(f"An unexpected error occurred during relaunch: {e}")
-        sys.exit(1)
+    if "credits" not in st.session_state or time.time() - st.session_state.get("
