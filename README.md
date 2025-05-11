@@ -11,7 +11,7 @@ This isn't just another chat app. It's a meticulously crafted experience designe
 
 ---
 
-## ✨ Features That Shine ✨
+## ✨ Features
 
 *   🎨 **Sleek, Modern UI:** A completely redesigned and polished user interface, heavily customized with CSS for a professional and enjoyable experience (dark/light theme compatible).
 *   🧠 **Intelligent Model Routing:** Don't just pick a model; let an AI assistant choose the *best* model for your query based on your defined criteria (quality, speed, cost).
