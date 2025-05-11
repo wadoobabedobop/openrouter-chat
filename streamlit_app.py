@@ -2,7 +2,7 @@
 """
 OpenRouter Streamlit Chat — Full Edition
 • Persistent chat sessions
-• Daily/weekly/monthly quotas (“6-2-1 / 3-1 / Unlimited”)
+• Daily/weekly/monthly quotas
 • Pretty ‘token-jar’ gauges (fixed at top)
 • Detailed model-routing panel (Mistral router)
 • Live credit/usage stats (GET /credits)
@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 # ────────────────────────── Configuration ───────────────────
-OPENROUTER_API_KEY  = "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"
+OPENROUTER_API_KEY  = "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" # Replace with your actual key or environment variable
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT     = 120
 
@@ -29,7 +29,7 @@ MODEL_MAP = {
     "B": "openai/o4-mini",
     "C": "openai/chatgpt-4o-latest",
     "D": "deepseek/deepseek-r1",
-    "E": "x-ai/grok-3-beta",
+    # "E": "x-ai/grok-3-beta", # REMOVED E
     "F": "google/gemini-2.5-flash-preview"
 }
 # Router uses Mistral 7B Instruct
@@ -38,17 +38,20 @@ ROUTER_MODEL_ID = "mistralai/mistral-7b-instruct:free"
 # Token limits for outputs
 MAX_TOKENS = {
     "A": 16_000, "B": 8_000, "C": 16_000,
-    "D": 8_000,  "E": 4_000, "F": 8_000
+    "D": 8_000,  # "E": 4_000, # REMOVED E
+    "F": 8_000
 }
 
-# Quota plan: (daily, weekly, monthly)
+# Quota plan: (daily, weekly, monthly) messages
+# Using daily * 7 for weekly and daily * 30 for monthly as placeholders for A,B,C,D.
+# F keeps its high limits for weekly/monthly, effectively daily constrained.
 PLAN = {
-    "A": (6, 45, 180),
-    "B": (2, 15, 60),
-    "C": (1, 8, 30),
-    "D": (3, 25, 100),
-    "E": (1, 10, 40),
-    "F": (999_999, 50, 190)
+    "A": (10, 10 * 7, 10 * 30),    # 10 daily
+    "B": (5, 5 * 7, 5 * 30),       # 5 daily
+    "C": (1, 1 * 7, 1 * 30),       # 1 daily
+    "D": (4, 4 * 7, 4 * 30),       # 4 daily
+    # "E": (1, 10, 40), # REMOVED E
+    "F": (180, 500, 2000) # 180 daily, adjusted W/M slightly from original large F values
 }
 
 # Emojis for jars
@@ -57,7 +60,7 @@ EMOJI = {
     "B": "🔷",
     "C": "🟥",
     "D": "🟢",
-    "E": "🟡",
+    # "E": "🟡", # REMOVED E
     "F": "🌀"
 }
 
@@ -67,8 +70,8 @@ MODEL_DESCRIPTIONS = {
     "B": "🔷 (o4-mini) – mid-stakes reasoning, cost-effective.",
     "C": "🟥 (chatgpt-4o-latest) – polished/empathetic, pricier.",
     "D": "🟢 (deepseek-r1) – cheap factual reasoning.",
-    "E": "🟡 (grok-3-beta) – edgy style, second opinion.",
-    "F": "🌀 (gemini-2.5-flash-preview) – quick, free-tier."
+    # "E": "🟡 (grok-3-beta) – edgy style, second opinion.", # REMOVED E
+    "F": "🌀 (gemini-2.5-flash-preview) – quick, free-tier, general purpose."
 }
 
 # Timezone for weekly/monthly resets
@@ -99,13 +102,25 @@ def _ymonth():   return datetime.now(TZ).strftime("%Y-%m")
 # ───────────────────── Quota Management ────────────────────────
 
 def _reset(block: dict, key: str, stamp: str, zeros: dict):
+    # Ensure zeros dict only contains keys for currently active models
+    active_zeros = {k: 0 for k in MODEL_MAP}
     if block.get(key) != stamp:
         block[key] = stamp
-        block[f"{key}_u"] = zeros.copy()
+        block[f"{key}_u"] = active_zeros.copy() # Use active_zeros
 
 def _load_quota():
     zeros = {k: 0 for k in MODEL_MAP}
     q = _load(QUOTA_FILE, {})
+
+    # Clean up old model keys from existing quota file if they exist
+    for period_usage_key in ("d_u", "w_u", "m_u"):
+        if period_usage_key in q:
+            current_usage_dict = q[period_usage_key]
+            keys_to_remove = [k for k in current_usage_dict if k not in MODEL_MAP]
+            for k_rem in keys_to_remove:
+                del current_usage_dict[k_rem]
+                logging.info(f"Removed old model key '{k_rem}' from quota usage '{period_usage_key}'.")
+
     _reset(q, "d", _today(), zeros)
     _reset(q, "w", _yweek(), zeros)
     _reset(q, "m", _ymonth(), zeros)
@@ -115,15 +130,25 @@ def _load_quota():
 quota = _load_quota()
 
 def remaining(key: str):
-    ud = quota["d_u"].get(key, 0)
-    uw = quota["w_u"].get(key, 0)
-    um = quota["m_u"].get(key, 0)
+    ud = quota.get("d_u", {}).get(key, 0) # Add .get for d_u, w_u, m_u for robustness
+    uw = quota.get("w_u", {}).get(key, 0)
+    um = quota.get("m_u", {}).get(key, 0)
+    
+    if key not in PLAN: # Should not happen if key is from MODEL_MAP
+        logging.error(f"Attempted to get remaining quota for unknown key: {key}")
+        return 0, 0, 0
+        
     ld, lw, lm = PLAN[key]
     return ld - ud, lw - uw, lm - um
 
 def record_use(key: str):
-    for blk in ("d_u", "w_u", "m_u"):
-        quota[blk][key] = quota[blk].get(key, 0) + 1
+    if key not in MODEL_MAP:
+        logging.error(f"Attempted to record usage for unknown model key: {key}")
+        return
+    for blk_key in ("d_u", "w_u", "m_u"):
+        if blk_key not in quota: # Initialize if period usage dict doesn't exist
+            quota[blk_key] = {k: 0 for k in MODEL_MAP}
+        quota[blk_key][key] = quota[blk_key].get(key, 0) + 1
     _save(QUOTA_FILE, quota)
 
 
@@ -182,17 +207,17 @@ def streamed(model: str, messages: list, max_tokens_out: int):
             return
 
         for line in r.iter_lines():
-            if not line: # Skip empty lines
+            if not line: 
                 continue
-            line_str = line.decode("utf-8") # Decode once
-            if line_str.startswith(": OPENROUTER PROCESSING"): # Handle OpenRouter specific ping
-                logging.info(f"OpenRouter PING: {line_str.strip()}") # Log it if you want
+            line_str = line.decode("utf-8") 
+            if line_str.startswith(": OPENROUTER PROCESSING"): 
+                logging.info(f"OpenRouter PING: {line_str.strip()}") 
                 continue
             if not line_str.startswith("data: "):
                 logging.warning(f"Unexpected non-event-stream line: {line}")
                 continue
 
-            data = line_str[6:].strip() # Use line_str
+            data = line_str[6:].strip() 
             if data == "[DONE]":
                 break
             try:
@@ -217,8 +242,8 @@ def streamed(model: str, messages: list, max_tokens_out: int):
 
 def route_choice(user_msg: str, allowed: list[str]) -> str:
     if not allowed:
-        logging.warning("route_choice called with empty allowed list.")
-        return "F" 
+        logging.warning("route_choice called with empty allowed list. Defaulting to 'F'.")
+        return "F" # Fallback to F if no models are allowed by quota
 
     if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
@@ -228,8 +253,12 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         "You are an intelligent model-routing assistant.",
         "Select ONLY one letter from the following available models:",
     ]
-    for k in allowed:
-        system_lines.append(f"- {k}: {MODEL_DESCRIPTIONS[k]}")
+    for k in allowed: # Only list currently allowed models to the router
+        if k in MODEL_DESCRIPTIONS: # Check if key exists to prevent errors
+            system_lines.append(f"- {k}: {MODEL_DESCRIPTIONS[k]}")
+        else:
+            logging.warning(f"Model key {k} found in 'allowed' but not in MODEL_DESCRIPTIONS.")
+
     system_lines.append(
         "Based on the user's query, choose the letter that best balances quality, speed, and cost-sensitivity."
     )
@@ -239,7 +268,6 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         {"role": "system", "content": "\n".join(system_lines)},
         {"role": "user",   "content": user_msg}
     ]
-    # Ensure max_tokens is set for the router call; a small value is fine.
     payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10}
     try:
         r = api_post(payload_r)
@@ -247,13 +275,14 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         text = r.json()["choices"][0]["message"]["content"].strip().upper()
         logging.info(f"Router raw response: {text}")
         for ch in text:
-            if ch in allowed:
+            if ch in allowed: # Ensure router choice is valid among currently allowed
                 return ch
     except Exception as e:
         logging.error(f"Router call error: {e}")
 
-    fallback_choice = allowed[0]
-    logging.warning(f"Router fallback to first allowed model: {fallback_choice}")
+    # Smarter fallback: if F is allowed, prefer it. Otherwise, first in list.
+    fallback_choice = "F" if "F" in allowed else allowed[0]
+    logging.warning(f"Router fallback to model: {fallback_choice}")
     return fallback_choice
 
 
@@ -298,11 +327,14 @@ with st.sidebar:
     st.title("OpenRouter Chat")
 
     # Token-Jar gauges pinned at the top
-    st.subheader("Daily Token-Jars")
-    cols = st.columns(len(MODEL_MAP))
-    for i, m in enumerate(sorted(MODEL_MAP)):
-        left, _, _ = remaining(m)
-        lim, _, _  = PLAN[m]
+    st.subheader("Daily Jars (Msgs Left)") # Updated subheader
+    cols = st.columns(len(MODEL_MAP)) # Number of columns now dynamic based on active models
+    
+    active_model_keys = sorted(MODEL_MAP.keys()) # Iterate only over active models
+
+    for i, m_key in enumerate(active_model_keys):
+        left, _, _ = remaining(m_key)
+        lim, _, _  = PLAN[m_key]
         pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0)
         fill = int(pct * 100)
         color = "#4caf50" if pct > .5 else "#ff9800" if pct > .25 else "#f44336"
@@ -334,7 +366,7 @@ with st.sidebar:
                   width:100%;
                   font-size:18px; 
                   line-height:1; 
-                ">{EMOJI[m]}</div>  
+                ">{EMOJI[m_key]}</div>  
                 <div style=" 
                   position:absolute;
                   bottom:2px; 
@@ -343,7 +375,7 @@ with st.sidebar:
                   font-weight:bold;
                   color:#555; 
                   line-height:1;
-                ">{m}</div>
+                ">{m_key}</div>
               </div>
               <span style=" 
                 display:block; 
@@ -361,7 +393,7 @@ with st.sidebar:
     # New Chat button
     if st.button("➕ New chat", use_container_width=True):
         st.session_state.sid = _new_sid()
-        st.rerun() # CHANGED from experimental_rerun
+        st.rerun()
 
     # Chat session list
     st.subheader("Chats")
@@ -371,7 +403,7 @@ with st.sidebar:
         if st.button(title, key=f"session_button_{sid_key}", use_container_width=True):
             if st.session_state.sid != sid_key: 
                 st.session_state.sid = sid_key
-                st.rerun() # CHANGED from experimental_rerun
+                st.rerun()
 
     st.markdown("---")
 
@@ -379,7 +411,7 @@ with st.sidebar:
     st.subheader("Model-Routing Map")
     st.caption(f"Router engine: `{ROUTER_MODEL_ID}`")
     with st.expander("Letters → Models"):
-        for k_model in sorted(MODEL_MAP.keys()): 
+        for k_model in sorted(MODEL_MAP.keys()): # Iterate only over active models
             st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
 
     st.markdown("---")
@@ -402,7 +434,7 @@ with st.sidebar:
                 st.session_state.credits["used"],
                 st.session_state.credits["remaining"],
             )
-            st.rerun() # CHANGED from experimental_rerun
+            st.rerun() 
 
         if tot is None:
             st.warning("Could not fetch credits.")
@@ -424,17 +456,22 @@ if current_sid not in sessions:
     st.error("Selected chat session not found. Creating a new one.")
     current_sid = _new_sid()
     st.session_state.sid = current_sid
-    st.rerun() # CHANGED from experimental_rerun
+    st.rerun() 
 
 
 chat_history = sessions[current_sid]["messages"] 
 
 # Display existing messages
-for msg_idx, msg in enumerate(chat_history): # Added enumerate for unique keys
-    avatar_key = msg.get("model", "F") if msg["role"] == "assistant" else "user" 
+for msg_idx, msg in enumerate(chat_history):
+    avatar_key = msg.get("model") if msg["role"] == "assistant" else "user" 
+    # If assistant used a model key not in EMOJI (e.g. old 'E' messages), default to 'F' for avatar
+    # or provide a generic assistant avatar.
+    if msg["role"] == "assistant" and avatar_key not in EMOJI:
+        avatar_key = "F" # Default to F's emoji for old messages from removed models
+        
     avatar_map = {"user": "👤", **EMOJI} 
-    avatar = avatar_map.get(avatar_key, "🤖")
-    with st.chat_message(msg["role"], avatar=avatar): # key=f"msg_{current_sid}_{msg_idx}" can be added for stability
+    avatar = avatar_map.get(avatar_key, "🤖") # Default to robot if key somehow still not found
+    with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])                                       
 
 # Input box
@@ -443,9 +480,12 @@ if prompt := st.chat_input("Ask anything…"):
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
 
+    # Check quotas for currently defined models
     allowed_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
     if not allowed_models:
         st.error("❗ All daily quotas exhausted. Try again tomorrow.")
+        if chat_history and chat_history[-1]["role"] == "user": # Remove last user prompt if no models
+             chat_history.pop()
         st.stop()
 
     chosen_model_key = route_choice(prompt, allowed_models)
@@ -466,7 +506,9 @@ if prompt := st.chat_input("Ask anything…"):
                 response_placeholder.markdown(full_response_content + "▌")
         response_placeholder.markdown(full_response_content)
 
-    chat_history.append({"role":"assistant","content":full_response_content,"model":chosen_model_key})
+    # Append assistant message, ensuring model key is valid
+    chat_history.append({"role":"assistant","content":full_response_content,"model":chosen_model_key if chosen_model_key in MODEL_MAP else "F"})
+
 
     if api_call_ok: 
         record_use(chosen_model_key)
@@ -474,7 +516,7 @@ if prompt := st.chat_input("Ask anything…"):
             sessions[current_sid]["title"] = _autoname(prompt)
     
     _save(SESS_FILE, sessions) 
-    st.rerun() # CHANGED from experimental_rerun
+    st.rerun() 
 
 
 # ───────────────────────── Self-Relaunch ──────────────────────
@@ -486,8 +528,6 @@ if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
         sys.executable, "-m", "streamlit", "run", __file__,
         "--server.port", port, 
         "--server.address", "0.0.0.0",
-        # "--server.runOnSave", "false", # Usually not needed for deployed apps
-        # "--client.toolbarMode", "minimal" 
     ]
     logging.info(f"Relaunching with Streamlit: {' '.join(cmd)}")
     subprocess.run(cmd, check=False)
