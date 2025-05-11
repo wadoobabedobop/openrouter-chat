@@ -306,7 +306,6 @@ with st.sidebar:
     # New Chat button
     if st.button("➕ New chat", use_container_width=True):
         st.session_state.sid = _new_sid()
-        st.experimental_rerun()
 
     # Chat session list
     st.subheader("Chats")
