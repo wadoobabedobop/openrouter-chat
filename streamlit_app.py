@@ -289,30 +289,30 @@ def load_custom_css():
 
         /* Sidebar Styling */
         [data-testid="stSidebar"] {
-            background-color: #f8f9fa; /* Lighter sidebar */
-            padding: 1.5rem 1rem; /* More padding */
+            background-color: var(--secondary-background-color); /* Adapts to theme */
+            padding: 1.5rem 1rem;
         }
-        
+
         /* Sidebar Header (Logo + Title) */
         [data-testid="stSidebar"] > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) {
             display: flex !important;
             align-items: center !important;
             margin-bottom: 1.5rem !important;
             padding-bottom: 1rem;
-            border-bottom: 1px solid #e0e0e0;
+            border-bottom: 1px solid var(--border-color); /* Theme-aware border */
         }
         [data-testid="stSidebar"] .stImage {
             margin-right: 12px;
         }
         [data-testid="stSidebar"] .stImage > img {
-            border-radius: 50%; /* Circular logo */
-            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-            width: 50px !important; /* Ensure consistent size */
+            border-radius: 50%;
+            box-shadow: 0 2px 6px var(--shadow); /* Theme-aware shadow */
+            width: 50px !important;
             height: 50px !important;
         }
         [data-testid="stSidebar"] h1 { /* Targets st.title in sidebar */
             font-size: 1.6rem !important;
-            color: #1E88E5; /* A nice blue */
+            color: var(--primary); /* Use Streamlit's primary color */
             font-weight: 600;
             margin-bottom: 0;
         }
@@ -322,96 +322,103 @@ def load_custom_css():
             font-size: 0.9rem !important;
             text-transform: uppercase;
             font-weight: 600;
-            color: #4A4A4A;
+            color: var(--text-color-secondary); /* Adapts to theme, more subtle */
             margin-top: 1.5rem;
             margin-bottom: 0.75rem;
         }
 
 
-        /* Button Styling (General for Sidebar) */
+        /* Button Styling (General for Sidebar - for session list) */
         [data-testid="stSidebar"] .stButton > button {
             border-radius: 8px;
-            border: 1px solid #ced4da;
+            border: 1px solid var(--border-color);
             padding: 0.5em 1em;
             font-size: 0.95em;
             font-weight: 500;
             font-family: inherit;
-            background-color: #ffffff; 
-            color: #333;
+            background-color: var(--secondary-background-color);
+            color: var(--text-color);
             cursor: pointer;
             transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
             width: 100%;
-            margin-bottom: 0.3rem; /* Small gap between buttons */
-            text-align: left; /* Align text for session buttons */
+            margin-bottom: 0.3rem;
+            text-align: left;
         }
         [data-testid="stSidebar"] .stButton > button:hover {
-            border-color: #007bff;
-            background-color: #f8f9fa;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            border-color: var(--primary);
+            /* For hover, slightly change background. In dark mode, this might be lighter. */
+            /* Using a semi-transparent overlay of primary color might work too. */
+            background-color: color-mix(in srgb, var(--primary) 10%, var(--secondary-background-color));
+            box-shadow: 0 1px 3px var(--shadow);
         }
-        [data-testid="stSidebar"] .stButton > button:focus, 
+        [data-testid="stSidebar"] .stButton > button:focus,
         [data-testid="stSidebar"] .stButton > button:focus-visible {
-            outline: 2px auto #007bff;
+            outline: 2px auto var(--primary);
             outline-offset: 2px;
         }
+        /* Streamlit handles disabled button styles fairly well by default.
+           If more customization is needed, target with html[data-theme='dark/light'] */
         [data-testid="stSidebar"] .stButton > button:disabled {
-            background-color: #e9ecef;
-            color: #6c757d;
-            border-color: #ced4da;
+            /* background-color: var(--color-gray-20); For light theme */
+            /* color: var(--text-color-tertiary); */
+            /* border-color: var(--color-gray-30); */
+            opacity: 0.6; /* General approach for disabled */
             cursor: not-allowed;
         }
-        
-        /* Specific "New Chat" button */
-        [data-testid="stSidebar"] .stButton[data-testid$="-New chat"] > button { /* More specific selector if needed */
-             background-color: #1E88E5; /* Primary action color */
-             color: white;
-             border-color: #1E88E5;
+
+        /* Specific "New Chat" button - targeted by its key */
+        [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button {
+             background-color: var(--primary);
+             color: white; /* White text on primary color is usually fine */
+             border-color: var(--primary);
         }
-        [data-testid="stSidebar"] .stButton[data-testid$="-New chat"] > button:hover {
-             background-color: #1565C0; /* Darker on hover */
-             border-color: #1565C0;
+        [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:hover {
+             /* background-color: #1565C0; */ /* Old hardcoded */
+             filter: brightness(90%); /* Darken the primary color slightly on hover */
+             border-color: var(--primary); /* Keep or slightly darken */
         }
 
 
         /* Custom Token Jar Styling */
         .token-jar-container {
-            width: 100%; /* Make it responsive to column width */
-            max-width: 55px; 
+            width: 100%;
+            max-width: 55px;
             margin: 0 auto 0.5rem auto;
             text-align: center;
             font-family: inherit;
         }
         .token-jar {
-            height: 60px; 
-            border: 1px solid #d0d7de; 
-            border-radius: 8px; 
-            background: #f6f8fa;
+            height: 60px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--secondary-background-color); /* Theme-aware background */
             position: relative;
             overflow: hidden;
-            box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+            box-shadow: inset 0 1px 2px var(--shadow-sm, rgba(0,0,0,0.05)); /* Use a subtle inset shadow variable or fallback */
             margin-bottom: 4px;
         }
         .token-jar-fill {
             position: absolute;
             bottom: 0;
             width: 100%;
-            transition: height 0.3s ease-in-out, background-color 0.3s ease-in-out; 
-            box-shadow: inset 0 -1px 2px rgba(0,0,0,0.05);
+            transition: height 0.3s ease-in-out, background-color 0.3s ease-in-out;
+            /* box-shadow: inset 0 -1px 2px var(--shadow-sm, rgba(0,0,0,0.02)); */ /* Subtle effect */
         }
         .token-jar-emoji {
             position: absolute;
-            top: 6px; 
+            top: 6px;
             width: 100%;
-            font-size: 18px; 
+            font-size: 18px;
             line-height: 1;
         }
         .token-jar-key {
             position: absolute;
             bottom: 6px;
             width: 100%;
-            font-size: 11px; 
+            font-size: 11px;
             font-weight: 600;
-            color: #343a40; 
+            color: var(--text-color); /* Theme-aware text */
+            opacity: 0.8;
             line-height: 1;
         }
         .token-jar-remaining {
@@ -419,51 +426,74 @@ def load_custom_css():
             margin-top: 2px;
             font-size: 11px;
             font-weight: 600;
-            color: #495057; 
+            color: var(--text-color); /* Theme-aware text */
+            opacity: 0.9;
             line-height: 1;
         }
 
         /* Expander Styling */
         .stExpander {
-            border: 1px solid #d0d7de;
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             margin-bottom: 1rem;
-            background-color: #ffffff; /* White background for expander content */
+            background-color: var(--background-color-primary); /* Main background for content area */
         }
         .stExpander header {
             font-weight: 600;
             font-size: 0.95rem;
-            padding: 0.6rem 1rem !important; 
-            background-color: #f6f8fa; 
-            border-bottom: 1px solid #d0d7de;
-            border-top-left-radius: 7px; 
+            padding: 0.6rem 1rem !important;
+            background-color: var(--secondary-background-color); /* Header distinct from content */
+            border-bottom: 1px solid var(--border-color);
+            border-top-left-radius: 7px;
             border-top-right-radius: 7px;
+            color: var(--text-color); /* Ensure header text is theme-aware */
         }
         .stExpander header:hover {
-            background-color: #e9ecef;
+            /* Slightly change background on hover, works for both themes */
+            background-color: color-mix(in srgb, var(--text-color) 5%, var(--secondary-background-color));
         }
         .stExpander div[data-testid="stExpanderDetails"] {
-             padding: 0.75rem 1rem; /* Padding for content within expander */
+             padding: 0.75rem 1rem;
+             background-color: var(--background-color-primary); /* Ensure content area has correct background */
         }
 
 
         /* Chat Message Styling */
+        /* NOTE: The screenshot shows chat messages already looking good in dark mode.
+           The following CSS makes your custom light-mode styling theme-aware.
+           If Streamlit's default chat message styling is preferred in dark mode,
+           you might only need the html[data-theme="light"] parts. */
         [data-testid="stChatMessage"] {
             border-radius: 12px;
             padding: 14px 20px;
             margin-bottom: 12px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 5px var(--shadow);
             border: 1px solid transparent; /* Base border */
+            /* color: var(--text-color); General text color is inherited or set by theme */
         }
+
         /* User message specific styling */
-        [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
+        html[data-theme="light"] [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
             background-color: #E3F2FD; /* Light blue for user messages */
-            border-left: 3px solid #1E88E5;
+            border-left: 3px solid #1E88E5; /* Original primary blue */
+            color: #0D47A1; /* Darker blue text for contrast on light blue bg */
         }
+        html[data-theme="dark"] [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
+            background-color: color-mix(in srgb, var(--primary) 15%, var(--secondary-background-color)); /* Dark theme: tinted secondary bg */
+            border-left: 3px solid var(--primary);
+            color: var(--text-color);
+        }
+
         /* Assistant message specific styling */
-        [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
+        html[data-theme="light"] [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
             background-color: #f9f9f9; /* Slightly off-white for assistant */
-            border-left: 3px solid #757575;
+            border-left: 3px solid #757575; /* Mid-gray */
+            color: var(--color-gray-80, #333); /* Dark gray text */
+        }
+        html[data-theme="dark"] [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
+            background-color: var(--secondary-background-color); /* Use secondary for assistant, distinct from user */
+            border-left: 3px solid var(--color-gray-60, #888); /* Lighter gray border for dark theme */
+            color: var(--text-color);
         }
         
         [data-testid="stChatMessage"] .stMarkdown p {
@@ -476,14 +506,16 @@ def load_custom_css():
           margin-top: 1.5rem;
           margin-bottom: 1.5rem;
           border: 0;
-          border-top: 1px solid #d0d7de; /* Subtler divider */
+          border-top: 1px solid var(--border-color); /* Theme-aware divider */
         }
 
-        /* Chat input */
+        /* Chat input - Streamlit handles this well, usually no need to override unless specific design */
+        /*
         [data-testid="stChatInput"] {
-            background-color: #f0f2f6; /* Give chat input a distinct background */
-            border-top: 1px solid #d0d7de;
+            background-color: var(--secondary-background-color);
+            border-top: 1px solid var(--border-color);
         }
+        */
 
     </style>
     """
@@ -567,9 +599,7 @@ with st.sidebar:
            not current_session_data.get("messages"):
             current_session_is_truly_blank = True
     
-    # The key for "New chat" button helps target it with CSS if needed, but general button styling will apply
-    # Streamlit testids for buttons often include their label, e.g. data-testid="stButton-New chat"
-    # The CSS tries to use this: [data-testid="stSidebar"] .stButton[data-testid$="-New chat"] > button
+    # The key for "New chat" button helps target it with CSS if needed
     if st.button("➕ New chat", key="new_chat_button_top", use_container_width=True, disabled=current_session_is_truly_blank):
         new_session_id = _new_sid()
         st.session_state.sid = new_session_id
@@ -640,7 +670,7 @@ if current_sid not in sessions:
     st.rerun()
 
 # Display current chat title (optional, can be styled)
-# st.subheader(f"Chat: {sessions[current_sid].get('title', 'Untitled')}") 
+# st.subheader(f"Chat: {sessions[current_sid].get('title', 'Untitled')}")
 # st.markdown(f"### {sessions[current_sid].get('title', 'Untitled')}")
 
 
@@ -711,7 +741,7 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
         
         if sessions[current_sid]["title"] == "New chat" and sessions[current_sid]["messages"]:
             sessions[current_sid]["title"] = _autoname(prompt)
-            _delete_unused_blank_sessions(keep_sid=current_sid) 
+            _delete_unused_blank_sessions(keep_sid=current_sid)
 
     _save(SESS_FILE, sessions)
     st.rerun()
