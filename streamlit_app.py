@@ -533,4 +533,192 @@ def load_custom_css():
         [data-testid="stChatInput"] textarea::placeholder {
             color: #6B7280 !important;
         }
-        html[data
+        html[data-theme="light"] [data-testid="stChatInput"] textarea::placeholder {
+            color: #6B7280 !important;
+        }
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
+# ───────────────────── Main App Logic (Placeholder) ─────────────────────
+# This is where your main Streamlit app logic would go.
+# For demonstration, I'll add a basic structure.
+
+def display_chat_messages(session_messages):
+    for msg in session_messages:
+        avatar = "🧑‍💻" if msg["role"] == "user" else EMOJI.get(msg.get("model_key", "_"), "🤖")
+        with st.chat_message(msg["role"], avatar=avatar):
+            st.markdown(msg["content"])
+
+def main():
+    st.set_page_config(page_title="OpenRouter Chat", page_icon="🤖", layout="wide")
+    load_custom_css()
+
+    # Initialize session state
+    if "current_session_id" not in st.session_state:
+        if sessions:
+            st.session_state.current_session_id = next(iter(sessions)) # Load first existing
+        else:
+            st.session_state.current_session_id = _new_sid() # Or create new
+            _save(SESS_FILE, sessions) # Save new session file
+
+    if "sessions" not in st.session_state: # Load all sessions into session_state
+        st.session_state.sessions = sessions.copy()
+
+
+    with st.sidebar:
+        col1, col2 = st.columns([1,3])
+        with col1:
+            st.image("https://raw.githubusercontent.com/simonw/llm-ui-grouped/main/static/icon.png") # Replace with your logo
+        with col2:
+            st.title("OpenRouter Chat")
+
+        if st.button("➕ New Chat", use_container_width=True, type="primary"):
+            old_sid = st.session_state.current_session_id
+            new_id = _new_sid()
+            st.session_state.current_session_id = new_id
+            st.session_state.sessions = sessions.copy() # update session_state
+            if _delete_unused_blank_sessions(keep_sid=new_id):
+                st.session_state.sessions = sessions.copy() # update if deletions occurred
+            _save(SESS_FILE, sessions)
+            st.rerun()
+
+        st.subheader("Chats")
+        # Display existing chats
+        sorted_sids = sorted(st.session_state.sessions.keys(), reverse=True)
+        for sid_key in sorted_sids:
+            s_data = st.session_state.sessions[sid_key]
+            label = s_data.get("title", "Chat")
+            if st.session_state.current_session_id == sid_key:
+                label = f"🔹 {label}"
+            if st.button(label, key=f"session_btn_{sid_key}", use_container_width=True):
+                st.session_state.current_session_id = sid_key
+                st.rerun()
+        st.divider()
+
+        with st.expander("Model Usage (Daily)", expanded=True):
+            for key, model_id_part in MODEL_MAP.items():
+                rd, rw, rm = remaining(key)
+                name = model_id_part.split('/')[-1].replace('-preview','').replace('-latest','')
+                used_daily = PLAN[key][0] - rd
+                max_daily = PLAN[key][0]
+
+                # Progress bar color
+                progress_percent = (used_daily / max_daily) * 100 if max_daily > 0 else 0
+                if progress_percent < 50: color = "#48BB78" # Green
+                elif progress_percent < 85: color = "#F6E05E" # Yellow
+                else: color = "#F56565" # Red
+
+                st.markdown(f"""
+                <div class="model-usage-item">
+                    <div class="model-info">
+                        <span class="model-emoji">{EMOJI.get(key, '❓')}</span>
+                        <span class="model-key-name" title="{MODEL_DESCRIPTIONS.get(key, '')}">{key}: {name}</span>
+                    </div>
+                    <span class="quota-text">{used_daily}/{max_daily}</span>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill" style="width: {progress_percent}%; background-color: {color};"></div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            popover_details = st.popover("Details (D/W/M)", use_container_width=True)
+            popover_details.markdown("Remaining uses (Daily / Weekly / Monthly)")
+            for key in MODEL_MAP.keys():
+                rd, rw, rm = remaining(key)
+                popover_details.text(f"{EMOJI.get(key, '')} {key}: {rd} / {rw} / {rm}")
+
+        st.divider()
+        _, _, credits_rem = get_credits()
+        if credits_rem is not None:
+            st.caption(f"OpenRouter Credits: ${credits_rem:.2f}")
+        else:
+            st.caption("OpenRouter Credits: N/A")
+
+        st.caption(f"© {datetime.now().year} • v0.2.1-polished")
+
+
+    # Main chat area
+    current_session_data = st.session_state.sessions.get(st.session_state.current_session_id, {"title": "New Chat", "messages": []})
+    session_messages = current_session_data.get("messages", [])
+
+    if not session_messages:
+        st.markdown(f"""
+        <div class="empty-chat-container">
+            <img src="https://raw.githubusercontent.com/simonw/llm-ui-grouped/main/static/icon.png" class="logo-main" alt="App Logo">
+            <h2>How can I help you today, Asher?</h2>
+            <p>I can help you choose the best model for your task based on its capabilities and your remaining quotas. Just type your query below!</p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        display_chat_messages(session_messages)
+
+
+    if prompt := st.chat_input("Ask anything..."):
+        session_messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user", avatar="🧑‍💻"):
+            st.markdown(prompt)
+
+        # Auto-name session if it's the first message
+        if len(session_messages) == 1 and current_session_data["title"] == "New chat":
+            current_session_data["title"] = _autoname(prompt)
+            st.session_state.sessions[st.session_state.current_session_id]["title"] = current_session_data["title"]
+            _save(SESS_FILE, sessions) # Save all sessions, including updated title
+            # No st.rerun() here, let it flow to model choice
+
+        # Determine available models based on quota
+        available_models_keys = [k for k in MODEL_MAP if remaining(k)[0] > 0] # Daily quota
+        if not available_models_keys: # If all daily quotas used, check weekly
+            available_models_keys = [k for k in MODEL_MAP if remaining(k)[1] > 0]
+            if not available_models_keys: # If all weekly quotas used, check monthly
+                 available_models_keys = [k for k in MODEL_MAP if remaining(k)[2] > 0]
+
+        chosen_model_key = FALLBACK_MODEL_KEY # Default to fallback if no models have quota
+
+        if not available_models_keys:
+            logger.warning("All models have exhausted their D/W/M quotas. Using fallback.")
+            chosen_model_id = FALLBACK_MODEL_ID
+            chosen_model_max_tokens = FALLBACK_MODEL_MAX_TOKENS
+            chosen_model_emoji = FALLBACK_MODEL_EMOJI
+            st.warning(f"All model quotas exhausted. Using fallback model: {FALLBACK_MODEL_ID.split('/')[-1]}. Responses may be limited.", icon="⚠️")
+        else:
+            logger.info(f"Models with quota: {available_models_keys}")
+            chosen_model_key = route_choice(prompt, available_models_keys)
+            chosen_model_id = MODEL_MAP[chosen_model_key]
+            chosen_model_max_tokens = MAX_TOKENS.get(chosen_model_key, 8000)
+            chosen_model_emoji = EMOJI.get(chosen_model_key, "🤖")
+
+
+        with st.chat_message("assistant", avatar=chosen_model_emoji):
+            message_placeholder = st.empty()
+            full_response = ""
+            error_message = None
+
+            api_messages = [{"role": m["role"], "content": m["content"]} for m in session_messages]
+
+            for chunk_text, err in streamed(chosen_model_id, api_messages, chosen_model_max_tokens):
+                if err:
+                    error_message = f"Error: {err}"
+                    logger.error(error_message)
+                    break
+                if chunk_text:
+                    full_response += chunk_text
+                    message_placeholder.markdown(full_response + "▌")
+            message_placeholder.markdown(full_response)
+
+        if error_message:
+            session_messages.append({"role": "assistant", "content": error_message, "model_key": chosen_model_key, "error": True})
+        else:
+            session_messages.append({"role": "assistant", "content": full_response, "model_key": chosen_model_key})
+            if chosen_model_key != FALLBACK_MODEL_KEY: # Only record use if not fallback
+                record_use(chosen_model_key)
+                _load_quota() # Refresh quota in memory after recording
+
+        # Update the specific session in the main 'sessions' dict and save
+        st.session_state.sessions[st.session_state.current_session_id]["messages"] = session_messages
+        _save(SESS_FILE, st.session_state.sessions)
+        st.rerun() # Rerun to update UI with new message and possibly quota changes
+
+
+if __name__ == "__main__":
+    main()
