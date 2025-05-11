@@ -210,11 +210,8 @@ def streamed(model: str, messages: list, max_tokens_out: int):
 def route_choice(user_msg: str, allowed: list[str]) -> str:
     if not allowed:
         logging.warning("route_choice called with empty allowed list.")
-        # Fallback if absolutely no models are allowed (e.g., all quotas exhausted before check)
-        # This case should ideally be prevented by upstream checks.
-        return "F" # Default to free tier model key if possible, or any valid key.
+        return "F"
 
-    # If only one model is allowed, no need to call the router
     if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
         return allowed[0]
@@ -234,21 +231,18 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         {"role": "system", "content": "\n".join(system_lines)},
         {"role": "user",   "content": user_msg}
     ]
-    payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 5} # Added max_tokens for router
+    payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 5}
     try:
         r = api_post(payload_r)
         r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"].strip().upper()
         logging.info(f"Router raw response: {text}")
-        # Iterate through characters in response to find the first valid allowed model
         for ch in text:
             if ch in allowed:
                 return ch
     except Exception as e:
         logging.error(f"Router call error: {e}")
 
-    # Fallback strategy: if router fails or gives invalid response, pick the first allowed model.
-    # This could be made smarter, e.g., prefer 'F' if available and in allowed.
     fallback_choice = allowed[0]
     logging.warning(f"Router fallback to first allowed model: {fallback_choice}")
     return fallback_choice
@@ -304,7 +298,6 @@ with st.sidebar:
         fill = int(pct * 100)
         color = "#4caf50" if pct > .5 else "#ff9800" if pct > .25 else "#f44336"
         
-        # Improved Jar UI
         cols[i].markdown(f"""
             <div style="width:44px; margin:auto; text-align:center;">
               <div style="
@@ -354,26 +347,14 @@ with st.sidebar:
                 {'∞' if lim > 900_000 else left}
               </span>
             </div>""", unsafe_allow_html=True)
-    st.markdown("---")
+    st.markdown("---") # Separator 1 (after Jars)
 
     # New Chat button
     if st.button("➕ New chat", use_container_width=True):
         st.session_state.sid = _new_sid()
-        st.experimental_rerun() # Rerun to reflect new chat selection immediately
+        st.experimental_rerun()
 
-    # Chat session list
-    st.subheader("Chats")
-    # Sort sessions by SID (timestamp based) in descending order for "latest first"
-    sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
-    for sid_key in sorted_sids:
-        # Use a unique key for each button, e.g., f"session_button_{sid_key}"
-        title = sessions[sid_key]["title"][:25] + ("…" if len(sessions[sid_key]["title"]) > 25 else "") or "Untitled"
-        if st.button(title, key=f"session_button_{sid_key}", use_container_width=True):
-            if st.session_state.sid != sid_key: # Only rerun if a different session is selected
-                st.session_state.sid = sid_key
-                st.experimental_rerun()
-
-    st.markdown("---")
+    st.markdown("---") # Separator 2 (after New Chat, before Model Routing)
 
     # Model-routing info
     st.subheader("Model-Routing Map")
@@ -382,7 +363,7 @@ with st.sidebar:
         for k_model in sorted(MODEL_MAP.keys()): # Sort for consistent display
             st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
 
-    st.markdown("---")
+    st.markdown("---") # Separator 3 (after Model Routing, before Account Stats)
 
     # Live credit stats
     tot, used, rem = (
@@ -414,14 +395,26 @@ with st.sidebar:
             try:
                 last_updated_str = datetime.fromtimestamp(st.session_state.credits_ts).strftime('%Y-%m-%d %H:%M:%S')
                 st.caption(f"Last updated: {last_updated_str}")
-            except TypeError: # Handle potential None for credits_ts if initial fetch failed badly
+            except TypeError: 
                 st.caption("Last updated: N/A")
+
+    st.markdown("---") # Separator 4 (after Account Stats, before Chat List)
+
+    # Chat session list
+    st.subheader("Chats")
+    sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
+    for sid_key in sorted_sids:
+        title = sessions[sid_key]["title"][:25] + ("…" if len(sessions[sid_key]["title"]) > 25 else "") or "Untitled"
+        if st.button(title, key=f"session_button_{sid_key}", use_container_width=True):
+            if st.session_state.sid != sid_key: 
+                st.session_state.sid = sid_key
+                st.experimental_rerun()
 
 
 # ────────────────────────── Main Chat Panel ─────────────────────
 
-current_sid = st.session_state.sid # Use a clear variable name
-if current_sid not in sessions: # Handle rare case where SID might be invalid
+current_sid = st.session_state.sid 
+if current_sid not in sessions: 
     st.error("Selected chat session not found. Creating a new one.")
     current_sid = _new_sid()
     st.session_state.sid = current_sid
@@ -430,34 +423,27 @@ if current_sid not in sessions: # Handle rare case where SID might be invalid
 
 chat_history = sessions[current_sid]["messages"]
 
-# Display existing messages
 for msg in chat_history:
     avatar_key = msg.get("model", "F") if msg["role"] == "assistant" else "user"
-    avatar_map = {"user": "👤", **EMOJI} # Combine user avatar with model emojis
-    avatar = avatar_map.get(avatar_key, "🤖") # Default to robot if model key unknown
+    avatar_map = {"user": "👤", **EMOJI} 
+    avatar = avatar_map.get(avatar_key, "🤖") 
     with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
 
-# Input box
 if prompt := st.chat_input("Ask anything…"):
-    # Append user message to current chat history
     chat_history.append({"role":"user","content":prompt})
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
 
-    # Check quotas
     allowed_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
     if not allowed_models:
         st.error("❗ All daily quotas exhausted. Try again tomorrow.")
-        # chat_history.pop() # Optional: remove user message if no model can process
         st.stop()
 
-    # Route
     chosen_model_key = route_choice(prompt, allowed_models)
     model_id_to_use = MODEL_MAP[chosen_model_key]
     max_tokens_for_model  = MAX_TOKENS[chosen_model_key]
 
-    # Stream response
     with st.chat_message("assistant", avatar=EMOJI[chosen_model_key]):
         response_placeholder, full_response_content = st.empty(), ""
         api_call_ok = True
@@ -472,17 +458,15 @@ if prompt := st.chat_input("Ask anything…"):
                 response_placeholder.markdown(full_response_content + "▌")
         response_placeholder.markdown(full_response_content)
 
-    # Save assistant output
     chat_history.append({"role":"assistant","content":full_response_content,"model":chosen_model_key})
 
-    # Record usage, auto-title, and persist
-    if api_call_ok: # Only record use if API call was successful
+    if api_call_ok: 
         record_use(chosen_model_key)
         if sessions[current_sid]["title"] == "New chat":
             sessions[current_sid]["title"] = _autoname(prompt)
     
-    _save(SESS_FILE, sessions) # Save session data regardless of API success (to keep user msg and err msg)
-    st.experimental_rerun() # Rerun to update quotas display and chat log cleanly
+    _save(SESS_FILE, sessions) 
+    st.experimental_rerun()
 
 
 # ───────────────────────── Self-Relaunch ──────────────────────
@@ -494,13 +478,8 @@ if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
         sys.executable, "-m", "streamlit", "run", __file__,
         "--server.port", port, 
         "--server.address", "0.0.0.0",
-        "--server.runOnSave", "false", # Explicitly set runOnSave if needed
-        "--client.toolbarMode", "minimal" # Example of another CLI arg
+        "--server.runOnSave", "false", 
+        "--client.toolbarMode", "minimal" 
     ]
-    # Remove Streamlit's own script arguments before passing to subprocess
-    # This is generally good practice if __file__ is passed directly.
-    # However, here __file__ is an argument to `streamlit run`.
-    # The subprocess.run call is fine as is.
-    
     logging.info(f"Relaunching with Streamlit: {' '.join(cmd)}")
     subprocess.run(cmd, check=False)
