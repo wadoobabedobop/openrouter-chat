@@ -35,20 +35,15 @@ MODEL_MAP = {
     "B": "openai/o4-mini",
     "C": "openai/chatgpt-4o-latest",
     "D": "deepseek/deepseek-r1",
-    # "E": "x-ai/grok-3-beta", # REMOVED E
     "F": "google/gemini-2.5-flash-preview"
 }
-# Router uses Mistral 7B Instruct
 ROUTER_MODEL_ID = "mistralai/mistral-7b-instruct:free"
 
-# Token limits for outputs
 MAX_TOKENS = {
     "A": 16_000, "B": 8_000, "C": 16_000,
-    "D": 8_000,  # "E": 4_000, # REMOVED E
-    "F": 8_000
+    "D": 8_000, "F": 8_000
 }
 
-# Quota plan: (daily, weekly, monthly) messages
 PLAN = {
     "A": (10, 10 * 7, 10 * 30),
     "B": (5, 5 * 7, 5 * 30),
@@ -141,14 +136,8 @@ def record_use(key: str):
 # ───────────────────── Session Management ───────────────────────
 
 def _delete_unused_blank_sessions(keep_sid: str = None):
-    """
-    Deletes all sessions that are blank (title "New chat" and no messages),
-    except for the session with sid `keep_sid` if provided.
-    Modifies the global `sessions` object.
-    Returns True if any sessions were deleted.
-    """
     sids_to_delete = []
-    for sid, data in sessions.items(): # Iterate over a copy if modifying dict during iteration
+    for sid, data in sessions.items():
         if sid == keep_sid:
             continue
         if data.get("title") == "New chat" and not data.get("messages"):
@@ -161,18 +150,12 @@ def _delete_unused_blank_sessions(keep_sid: str = None):
         return True
     return False
 
-sessions = _load(SESS_FILE, {}) # Initialize global sessions
+sessions = _load(SESS_FILE, {})
 
 def _new_sid():
-    """
-    Clears ALL old blank/unused sessions, then creates a new session ID 
-    and adds a basic session structure to the global `sessions` dict.
-    """
-    _delete_unused_blank_sessions(keep_sid=None) # Clear ALL old blank sessions first
-
+    _delete_unused_blank_sessions(keep_sid=None)
     sid = str(int(time.time() * 1000))
     sessions[sid] = {"title": "New chat", "messages": []}
-    # The caller of _new_sid is responsible for _save(SESS_FILE, sessions)
     return sid
 
 def _autoname(seed: str) -> str:
@@ -295,6 +278,218 @@ def get_credits():
         logging.warning(f"Could not fetch /credits: {e}")
         return None, None, None
 
+# ───────────────────────── UI Styling ──────────────────────────
+def load_custom_css():
+    css = """
+    <style>
+        /* General Styles */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+        }
+
+        /* Sidebar Styling */
+        [data-testid="stSidebar"] {
+            background-color: #f8f9fa; /* Lighter sidebar */
+            padding: 1.5rem 1rem; /* More padding */
+        }
+        
+        /* Sidebar Header (Logo + Title) */
+        [data-testid="stSidebar"] > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) {
+            display: flex !important;
+            align-items: center !important;
+            margin-bottom: 1.5rem !important;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        [data-testid="stSidebar"] .stImage {
+            margin-right: 12px;
+        }
+        [data-testid="stSidebar"] .stImage > img {
+            border-radius: 50%; /* Circular logo */
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            width: 50px !important; /* Ensure consistent size */
+            height: 50px !important;
+        }
+        [data-testid="stSidebar"] h1 { /* Targets st.title in sidebar */
+            font-size: 1.6rem !important;
+            color: #1E88E5; /* A nice blue */
+            font-weight: 600;
+            margin-bottom: 0;
+        }
+
+        /* Sidebar Subheaders */
+        [data-testid="stSidebar"] h3 { /* Targets st.subheader */
+            font-size: 0.9rem !important;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: #4A4A4A;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+
+        /* Button Styling (General for Sidebar) */
+        [data-testid="stSidebar"] .stButton > button {
+            border-radius: 8px;
+            border: 1px solid #ced4da;
+            padding: 0.5em 1em;
+            font-size: 0.95em;
+            font-weight: 500;
+            font-family: inherit;
+            background-color: #ffffff; 
+            color: #333;
+            cursor: pointer;
+            transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+            width: 100%;
+            margin-bottom: 0.3rem; /* Small gap between buttons */
+            text-align: left; /* Align text for session buttons */
+        }
+        [data-testid="stSidebar"] .stButton > button:hover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        [data-testid="stSidebar"] .stButton > button:focus, 
+        [data-testid="stSidebar"] .stButton > button:focus-visible {
+            outline: 2px auto #007bff;
+            outline-offset: 2px;
+        }
+        [data-testid="stSidebar"] .stButton > button:disabled {
+            background-color: #e9ecef;
+            color: #6c757d;
+            border-color: #ced4da;
+            cursor: not-allowed;
+        }
+        
+        /* Specific "New Chat" button */
+        [data-testid="stSidebar"] .stButton[data-testid$="-New chat"] > button { /* More specific selector if needed */
+             background-color: #1E88E5; /* Primary action color */
+             color: white;
+             border-color: #1E88E5;
+        }
+        [data-testid="stSidebar"] .stButton[data-testid$="-New chat"] > button:hover {
+             background-color: #1565C0; /* Darker on hover */
+             border-color: #1565C0;
+        }
+
+
+        /* Custom Token Jar Styling */
+        .token-jar-container {
+            width: 100%; /* Make it responsive to column width */
+            max-width: 55px; 
+            margin: 0 auto 0.5rem auto;
+            text-align: center;
+            font-family: inherit;
+        }
+        .token-jar {
+            height: 60px; 
+            border: 1px solid #d0d7de; 
+            border-radius: 8px; 
+            background: #f6f8fa;
+            position: relative;
+            overflow: hidden;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+            margin-bottom: 4px;
+        }
+        .token-jar-fill {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            transition: height 0.3s ease-in-out, background-color 0.3s ease-in-out; 
+            box-shadow: inset 0 -1px 2px rgba(0,0,0,0.05);
+        }
+        .token-jar-emoji {
+            position: absolute;
+            top: 6px; 
+            width: 100%;
+            font-size: 18px; 
+            line-height: 1;
+        }
+        .token-jar-key {
+            position: absolute;
+            bottom: 6px;
+            width: 100%;
+            font-size: 11px; 
+            font-weight: 600;
+            color: #343a40; 
+            line-height: 1;
+        }
+        .token-jar-remaining {
+            display: block;
+            margin-top: 2px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #495057; 
+            line-height: 1;
+        }
+
+        /* Expander Styling */
+        .stExpander {
+            border: 1px solid #d0d7de;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            background-color: #ffffff; /* White background for expander content */
+        }
+        .stExpander header {
+            font-weight: 600;
+            font-size: 0.95rem;
+            padding: 0.6rem 1rem !important; 
+            background-color: #f6f8fa; 
+            border-bottom: 1px solid #d0d7de;
+            border-top-left-radius: 7px; 
+            border-top-right-radius: 7px;
+        }
+        .stExpander header:hover {
+            background-color: #e9ecef;
+        }
+        .stExpander div[data-testid="stExpanderDetails"] {
+             padding: 0.75rem 1rem; /* Padding for content within expander */
+        }
+
+
+        /* Chat Message Styling */
+        [data-testid="stChatMessage"] {
+            border-radius: 12px;
+            padding: 14px 20px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            border: 1px solid transparent; /* Base border */
+        }
+        /* User message specific styling */
+        [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
+            background-color: #E3F2FD; /* Light blue for user messages */
+            border-left: 3px solid #1E88E5;
+        }
+        /* Assistant message specific styling */
+        [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
+            background-color: #f9f9f9; /* Slightly off-white for assistant */
+            border-left: 3px solid #757575;
+        }
+        
+        [data-testid="stChatMessage"] .stMarkdown p {
+            margin-bottom: 0.3rem; /* Adjust paragraph spacing in messages */
+            line-height: 1.5;
+        }
+
+        /* Divider */
+        hr {
+          margin-top: 1.5rem;
+          margin-bottom: 1.5rem;
+          border: 0;
+          border-top: 1px solid #d0d7de; /* Subtler divider */
+        }
+
+        /* Chat input */
+        [data-testid="stChatInput"] {
+            background-color: #f0f2f6; /* Give chat input a distinct background */
+            border-top: 1px solid #d0d7de;
+        }
+
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
+
 # ───────────────────────── Streamlit UI ────────────────────────
 st.set_page_config(
     page_title="OpenRouter Chat",
@@ -302,17 +497,18 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+load_custom_css() # Load custom CSS styles
+
 # Initial SID Management and Cleanup
 needs_save_and_rerun_on_startup = False
 if "sid" not in st.session_state:
-    st.session_state.sid = _new_sid() # _new_sid cleans, creates, adds to global 'sessions'
+    st.session_state.sid = _new_sid()
     needs_save_and_rerun_on_startup = True
 elif st.session_state.sid not in sessions:
     logging.warning(f"Session ID {st.session_state.sid} from state not found in loaded sessions. Creating a new chat.")
-    st.session_state.sid = _new_sid() # _new_sid cleans, creates, adds to global 'sessions'
+    st.session_state.sid = _new_sid()
     needs_save_and_rerun_on_startup = True
 else:
-    # SID is valid and exists in sessions. Clean up OTHER blank sessions, keeping the current one.
     if _delete_unused_blank_sessions(keep_sid=st.session_state.sid):
         needs_save_and_rerun_on_startup = True
 
@@ -320,7 +516,6 @@ if needs_save_and_rerun_on_startup:
     _save(SESS_FILE, sessions)
     st.rerun()
 
-# Initialize credits if not already in session state
 if "credits" not in st.session_state:
     st.session_state.credits = dict(zip(
         ("total", "used", "remaining"),
@@ -331,38 +526,54 @@ if "credits" not in st.session_state:
 
 # ───────────────────────── Sidebar ─────────────────────────────
 with st.sidebar:
-    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50)
-    st.title("OpenRouter Chat")
+    # This container helps target the logo and title specifically with CSS
+    # st.markdown('<div class="sidebar-header">', unsafe_allow_html=True) # This doesn't work as expected for child elements
+    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50) # CSS will style this
+    st.title("OpenRouter Chat") # CSS will style this
+    # st.markdown('</div>', unsafe_allow_html=True)
 
     st.subheader("Daily Jars (Msgs Left)")
-    cols = st.columns(len(MODEL_MAP))
     active_model_keys = sorted(MODEL_MAP.keys())
+    cols = st.columns(len(active_model_keys))
     for i, m_key in enumerate(active_model_keys):
         left, _, _ = remaining(m_key)
         lim, _, _  = PLAN[m_key]
         pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0)
         fill = int(pct * 100)
-        color = "#4caf50" if pct > .5 else "#ff9800" if pct > .25 else "#f44336"
+        
+        # Gauge colors
+        if pct > .5: color = "#4caf50" # Green
+        elif pct > .25: color = "#ffc107" # Yellow
+        else: color = "#f44336" # Red
+        
+        # Use new CSS classes for token jars
         cols[i].markdown(f"""
-            <div style="width:44px; margin:auto; text-align:center;">
-              <div style="height:60px; border:1px solid #ccc; border-radius:7px; background:#f5f5f5; position:relative; overflow:hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.07),0 1px 1px rgba(0,0,0,0.05);"><div style="position:absolute; bottom:0; width:100%; height:{fill}%; background:{color}; box-shadow: inset 0 2px 2px rgba(255,255,255,0.3); box-sizing: border-box;"></div><div style="position:absolute; top:2px; width:100%; font-size:18px; line-height:1;">{EMOJI[m_key]}</div><div style="position:absolute; bottom:2px; width:100%; font-size:11px; font-weight:bold; color:#555; line-height:1;">{m_key}</div></div>
-              <span style="display:block; margin-top:4px; font-size:11px; font-weight:600; color:#333; line-height:1;">{'∞' if lim > 900_000 else left}</span>
+            <div class="token-jar-container">
+              <div class="token-jar">
+                <div class="token-jar-fill" style="height:{fill}%; background-color:{color};"></div>
+                <div class="token-jar-emoji">{EMOJI[m_key]}</div>
+                <div class="token-jar-key">{m_key}</div>
+              </div>
+              <span class="token-jar-remaining">{'∞' if lim > 900_000 else left}</span>
             </div>""", unsafe_allow_html=True)
-    st.markdown("---")
+    st.divider() # Modern divider
 
     # New Chat button
     current_session_is_truly_blank = False
-    if st.session_state.sid in sessions: # Ensure current_sid is valid before checking its content
+    if st.session_state.sid in sessions:
         current_session_data = sessions.get(st.session_state.sid)
         if current_session_data and \
            current_session_data.get("title") == "New chat" and \
            not current_session_data.get("messages"):
             current_session_is_truly_blank = True
     
-    if st.button("➕ New chat", use_container_width=True, disabled=current_session_is_truly_blank):
-        new_session_id = _new_sid() # _new_sid calls _delete_unused_blank_sessions internally
+    # The key for "New chat" button helps target it with CSS if needed, but general button styling will apply
+    # Streamlit testids for buttons often include their label, e.g. data-testid="stButton-New chat"
+    # The CSS tries to use this: [data-testid="stSidebar"] .stButton[data-testid$="-New chat"] > button
+    if st.button("➕ New chat", key="new_chat_button_top", use_container_width=True, disabled=current_session_is_truly_blank):
+        new_session_id = _new_sid()
         st.session_state.sid = new_session_id
-        _save(SESS_FILE, sessions) # Save all changes (new session, potentially deleted old blanks)
+        _save(SESS_FILE, sessions)
         st.rerun()
     elif current_session_is_truly_blank:
         st.caption("Current chat is empty. Add a message or switch.")
@@ -371,22 +582,30 @@ with st.sidebar:
     st.subheader("Chats")
     sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
     for sid_key in sorted_sids:
-        title = sessions[sid_key].get("title", "Untitled")[:25] + ("…" if len(sessions[sid_key].get("title", "")) > 25 else "")
-        if st.button(title, key=f"session_button_{sid_key}", use_container_width=True):
+        title = sessions[sid_key].get("title", "Untitled")
+        display_title = title[:25] + ("…" if len(title) > 25 else "")
+        
+        # Highlight current session button (subtly, can be enhanced with more complex CSS/JS)
+        button_type = "secondary" # Default Streamlit button type
+        if st.session_state.sid == sid_key:
+            # Streamlit doesn't offer easy native "active" state for buttons
+            # We could make the text bold or add an emoji.
+            display_title = f"🔹 {display_title}" # Indicate active chat
+
+        if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True):
             if st.session_state.sid != sid_key:
                 st.session_state.sid = sid_key
-                # Switched to sid_key. Clean up other blank sessions, keeping the newly selected one.
                 if _delete_unused_blank_sessions(keep_sid=sid_key):
                     _save(SESS_FILE, sessions)
                 st.rerun()
-    st.markdown("---")
+    st.divider() # Modern divider
 
     st.subheader("Model-Routing Map")
     st.caption(f"Router engine: {ROUTER_MODEL_ID}")
-    with st.expander("Letters → Models"):
+    with st.expander("Letters → Models", expanded=False): # Keep it collapsed by default
         for k_model in sorted(MODEL_MAP.keys()):
             st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
-    st.markdown("---")
+    st.divider() # Modern divider
 
     tot, used, rem = (
         st.session_state.credits.get("total"),
@@ -402,11 +621,11 @@ with st.sidebar:
             st.rerun()
         if tot is None: st.warning("Could not fetch credits.")
         else:
-            st.markdown(f"**Purchased:** {tot:.2f} cr")
-            st.markdown(f"**Used:** {used:.2f} cr")
-            st.markdown(f"**Remaining:** {rem:.2f} cr")
+            st.markdown(f"**Purchased:** ${tot:.2f} cr")
+            st.markdown(f"**Used:** ${used:.2f} cr")
+            st.markdown(f"**Remaining:** ${rem:.2f} cr") # Added $ sign assuming credits are monetary
             try:
-                last_updated_str = datetime.fromtimestamp(st.session_state.credits_ts).strftime('%Y-%m-%d %H:%M:%S')
+                last_updated_str = datetime.fromtimestamp(st.session_state.credits_ts, TZ).strftime('%-d %b %Y, %H:%M:%S')
                 st.caption(f"Last updated: {last_updated_str}")
             except TypeError: st.caption("Last updated: N/A")
 
@@ -415,25 +634,32 @@ with st.sidebar:
 current_sid = st.session_state.sid
 if current_sid not in sessions:
     st.error("Selected chat session not found. Creating a new one.")
-    current_sid = _new_sid() # _new_sid cleans, then creates new session
+    current_sid = _new_sid()
     st.session_state.sid = current_sid
-    _save(SESS_FILE, sessions) # Save because _new_sid modified global sessions
+    _save(SESS_FILE, sessions)
     st.rerun()
+
+# Display current chat title (optional, can be styled)
+# st.subheader(f"Chat: {sessions[current_sid].get('title', 'Untitled')}") 
+# st.markdown(f"### {sessions[current_sid].get('title', 'Untitled')}")
+
 
 chat_history = sessions[current_sid]["messages"]
 
 for msg_idx, msg in enumerate(chat_history):
     role = msg["role"]
-    avatar_for_display = "👤"
+    avatar_for_display = "👤" # User
     if role == "assistant":
         model_key_in_message = msg.get("model")
         if model_key_in_message == FALLBACK_MODEL_KEY: avatar_for_display = FALLBACK_MODEL_EMOJI
         elif model_key_in_message in EMOJI: avatar_for_display = EMOJI[model_key_in_message]
-        else: avatar_for_display = EMOJI.get("F", "🤖")
+        else: avatar_for_display = EMOJI.get("F", "🤖") # Default assistant avatar
+    
+    # Use a key for chat messages if you plan to manipulate them later, though usually not needed for display
     with st.chat_message(role, avatar=avatar_for_display):
         st.markdown(msg["content"])
 
-if prompt := st.chat_input("Ask anything…"):
+if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
     chat_history.append({"role":"user","content":prompt})
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
@@ -471,7 +697,7 @@ if prompt := st.chat_input("Ask anything…"):
         for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
             if error_message:
                 full_response_content = f"❗ **API Error**: {error_message}"
-                response_placeholder.error(full_response_content)
+                response_placeholder.error(full_response_content) # Use st.error for visual distinction
                 api_call_ok = False; break
             if chunk:
                 full_response_content += chunk
@@ -483,12 +709,9 @@ if prompt := st.chat_input("Ask anything…"):
     if api_call_ok:
         if not use_fallback_model: record_use(chosen_model_key_for_api)
         
-        # Check if current chat was "New chat" and now has messages
-        if sessions[current_sid]["title"] == "New chat" and sessions[current_sid]["messages"]: # messages list now includes user + assistant
+        if sessions[current_sid]["title"] == "New chat" and sessions[current_sid]["messages"]:
             sessions[current_sid]["title"] = _autoname(prompt)
-            # Current chat is now named. Clean up any OTHER blank sessions.
             _delete_unused_blank_sessions(keep_sid=current_sid) 
-            # No specific save/rerun here for _delete, main ones below cover it
 
     _save(SESS_FILE, sessions)
     st.rerun()
