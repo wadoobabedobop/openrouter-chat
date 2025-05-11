@@ -410,9 +410,10 @@ def load_custom_css():
             font-size: 1rem; color: var(--text-color-secondary); max-width: 450px; line-height: 1.6;
         }
 
+        /* --- REMOVED OLD CHAT INPUT STYLES ---
         [data-testid="stChatInput"] {
             background-color: #1A202C !important;
-            border: 1px solid #2D3748 !important; /* MODIFIED: Was border-top, now full border */
+            border: 1px solid #2D3748 !important;
             padding: 0.75rem 1rem !important;
             position: sticky; bottom: 0; left:0; right:0;
             z-index: 100;
@@ -422,7 +423,7 @@ def load_custom_css():
         }
         html[data-theme="light"] [data-testid="stChatInput"] {
             background-color: #F0F2F6 !important;
-            border-color: #D1D7E0 !important; /* MODIFIED: Was border-top-color, now border-color for full border */
+            border-color: #D1D7E0 !important;
         }
 
         [data-testid="stChatInput"] textarea {
@@ -464,6 +465,127 @@ def load_custom_css():
         [data-testid="stChatInput"] button svg { fill: #A0AEC0; }
         [data-testid="stChatInput"] button:hover svg { fill: var(--primary-color); }
         [data-testid="stChatInput"] button:disabled svg { fill: #4A5568; }
+        --- END REMOVED OLD CHAT INPUT STYLES --- */
+
+
+        /* +++ NEW CHAT INPUT STYLES +++ */
+        [data-testid="stChatInput"] {
+            background-color: #2D3748 !important; /* Darker gray for the bar background in dark mode */
+            border: 1px solid #4A5568 !important; /* Slightly lighter gray border for the bar in dark mode */
+            border-radius: 10px !important; /* Rounded corners for the bar */
+            padding: 0.5rem 0.75rem !important;
+            margin: 0.5rem 1rem 1rem 1rem !important; /* Margin around the bar */
+            position: sticky !important; /* Ensure it's sticky */
+            bottom: 1rem !important; /* Stick to bottom with some space from viewport edge */
+            left: 0 !important; /* Ensure it spans */
+            right: 0 !important; /* Ensure it spans */
+            width: calc(100% - 2rem) !important; /* Adjust width considering margin */
+            max-width: calc(860px - 2rem); /* Align with main content max-width considering margin */
+            margin-left: auto !important; /* Center it if block-container is centered */
+            margin-right: auto !important; /* Center it if block-container is centered */
+            z-index: 100 !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 0.75rem !important; /* Increased gap */
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.2) !important;
+        }
+
+        html[data-theme="light"] [data-testid="stChatInput"] {
+            background-color: #F3F4F6 !important; /* Light gray for bar background */
+            border-color: #D1D5DB !important; /* Medium gray border for bar */
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.05) !important;
+        }
+
+        [data-testid="stChatInput"] textarea {
+            flex-grow: 1 !important;
+            background-color: #1F2937 !important; /* Even darker gray for textarea in dark mode */
+            border: 1px solid #374151 !important; /* Darker border for textarea in dark mode */
+            color: #E5E7EB !important; /* Light text color */
+            padding: 10px 14px !important;
+            line-height: 1.5 !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+            border-radius: 8px !important;
+            outline: none !important;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            min-height: 42px !important; /* Standard height */
+            max-height: 200px !important;
+            resize: none !important;
+        }
+
+        html[data-theme="light"] [data-testid="stChatInput"] textarea {
+            background-color: #FFFFFF !important; /* White background for textarea */
+            border-color: #D1D5DB !important; /* Medium gray border */
+            color: #111827 !important; /* Dark text color */
+        }
+
+        [data-testid="stChatInput"] textarea::placeholder {
+            color: #6B7280 !important; /* Dark mode placeholder */
+        }
+        html[data-theme="light"] [data-testid="stChatInput"] textarea::placeholder {
+            color: #9CA3AF !important; /* Light mode placeholder */
+        }
+
+        [data-testid="stChatInput"] textarea:focus {
+             border-color: var(--primary-color) !important;
+             box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 25%, transparent) !important;
+        }
+
+        [data-testid="stChatInput"] button {
+             height: 42px !important; /* Match textarea height */
+             width: 42px !important;
+             min-width: 42px !important; /* Ensure it doesn't shrink too much */
+             border-radius: 8px !important;
+             background-color: #374151 !important; /* Dark mode button bg */
+             border: none !important;
+             padding: 0 !important;
+             display: flex !important;
+             align-items: center !important;
+             justify-content: center !important;
+             cursor: pointer !important;
+             transition: background-color 0.2s !important;
+        }
+        html[data-theme="light"] [data-testid="stChatInput"] button {
+            background-color: #E5E7EB !important; /* Light mode button bg */
+        }
+
+        [data-testid="stChatInput"] button svg {
+            fill: #9CA3AF !important; /* Dark mode icon color */
+            width: 20px !important;
+            height: 20px !important;
+        }
+        html[data-theme="light"] [data-testid="stChatInput"] button svg {
+            fill: #4B5563 !important; /* Light mode icon color */
+        }
+
+        [data-testid="stChatInput"] button:hover:not(:disabled) {
+            background-color: #4B5563 !important; /* Dark mode hover */
+        }
+        html[data-theme="light"] [data-testid="stChatInput"] button:hover:not(:disabled) {
+            background-color: #D1D5DB !important; /* Light mode hover */
+        }
+
+        [data-testid="stChatInput"] button:hover:not(:disabled) svg {
+            fill: var(--primary-color) !important;
+        }
+
+        [data-testid="stChatInput"] button:disabled {
+            background-color: #374151 !important;
+            opacity: 0.6 !important;
+            cursor: not-allowed !important;
+        }
+        html[data-theme="light"] [data-testid="stChatInput"] button:disabled {
+            background-color: #E5E7EB !important;
+            opacity: 0.6 !important;
+        }
+        [data-testid="stChatInput"] button:disabled svg {
+            fill: #6B7280 !important; /* Dark mode disabled icon */
+        }
+        html[data-theme="light"] [data-testid="stChatInput"] button:disabled svg {
+            fill: #9CA3AF !important; /* Light mode disabled icon */
+        }
+        /* +++ END NEW CHAT INPUT STYLES +++ */
+
 
         [data-testid="stChatMessage"] {
             border-radius: 10px; padding: 12px 18px; margin-bottom: 10px;
@@ -645,10 +767,6 @@ with st.sidebar:
             </div>
             """, unsafe_allow_html=True)
 
-            # Removed 'key' argument from st.popover due to TypeError in deployment logs
-            # If keys are truly needed for popovers (e.g. if you have many), a workaround would be
-            # to generate unique labels for each popover if the content is identical.
-            # For now, removing `key` is the safest approach given the logs.
             with st.popover(f"Details: {m_key} ({m_key_idx})", use_container_width=True): # Added index to label for uniqueness
                 st.markdown(f"**{MODEL_DESCRIPTIONS.get(m_key, 'No description available.')}**")
                 st.markdown(f"**Model ID:** `{MODEL_MAP.get(m_key, 'N/A')}`")
@@ -757,10 +875,8 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
             avatar_resp = FALLBACK_MODEL_EMOJI
 
     if use_fallback:
-        # This info message might be redundant if fallback due to no quota, but fine for router failure.
         st.info(f"{FALLBACK_MODEL_EMOJI} Using fallback model: {FALLBACK_MODEL_ID.split('/')[-1]}")
         logger.info(f"Final decision: Using fallback model: {FALLBACK_MODEL_ID}")
-        # Ensure all fallback parameters are set if use_fallback is true for any reason
         chosen_model_key_for_response = FALLBACK_MODEL_KEY
         model_id_to_use = FALLBACK_MODEL_ID
         max_tokens_api = FALLBACK_MODEL_MAX_TOKENS
@@ -776,10 +892,16 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
                 if err_msg: response_content = f"❗ **API Error**: {err_msg}"; placeholder.error(response_content); api_ok=False; break
                 if chunk: response_content += chunk; placeholder.markdown(response_content + "▌")
             if api_ok: placeholder.markdown(response_content)
-    else:
-        for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
-            if err_msg: response_content = f"❗ **API Error**: {err_msg}"; api_ok=False; break
-            if chunk: response_content += chunk
+    else: # This block handles the case where it's a new, empty chat and a prompt is entered
+        # We need to display the user's first message, then the assistant's response
+        st.chat_message("user", avatar="👤").markdown(prompt) # Display the user's prompt
+        with st.chat_message("assistant", avatar=avatar_resp): # Then stream the assistant's response
+            placeholder = st.empty()
+            for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api): # Pass full chat history
+                if err_msg: response_content = f"❗ **API Error**: {err_msg}"; placeholder.error(response_content); api_ok=False; break
+                if chunk: response_content += chunk; placeholder.markdown(response_content + "▌")
+            if api_ok: placeholder.markdown(response_content)
+
 
     chat_history.append({"role":"assistant","content":response_content,"model": chosen_model_key_for_response})
     if api_ok and not use_fallback and chosen_model_key_for_response != FALLBACK_MODEL_KEY:
@@ -793,11 +915,6 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
     st.rerun() # CORRECTED
 
 # ───────────────────────── Self-Relaunch (Local Development Only) ──────────────────────
-# This block should ideally be removed or commented out for Streamlit Cloud deployment
-# as it can interfere with the platform's process management.
-# If you need to run it locally with this, uncomment it.
-# For Streamlit Cloud, the platform handles running the script.
-#
 # if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
 #     logger.info("Attempting local self-relaunch for development...")
 #     os.environ["_IS_STRL"] = "1"; port = os.getenv("PORT", "8501")
