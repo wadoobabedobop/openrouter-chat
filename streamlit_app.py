@@ -23,7 +23,13 @@ OPENROUTER_API_KEY  = "sk-or-v1-144b2d5e41cb0846ed25c70e0b7337ee566584137ed629c1
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT     = 120
 
-# Model definitions
+# Fallback Model Configuration (used when other quotas are exhausted)
+FALLBACK_MODEL_ID = "deepseek/deepseek-chat-v3-0324:free"
+FALLBACK_MODEL_KEY = "_FALLBACK_"  # Internal key, not for display in jars or regular selection
+FALLBACK_MODEL_EMOJI = "🆓"        # Emoji for the fallback model
+FALLBACK_MODEL_MAX_TOKENS = 8000   # Max output tokens for the fallback model
+
+# Model definitions (standard, quota-tracked models)
 MODEL_MAP = {
     "A": "google/gemini-2.5-pro-preview",
     "B": "openai/o4-mini",
@@ -54,7 +60,7 @@ PLAN = {
     "F": (180, 500, 2000) # 180 daily, adjusted W/M slightly from original large F values
 }
 
-# Emojis for jars
+# Emojis for jars (does not include fallback model)
 EMOJI = {
     "A": "🌟",
     "B": "🔷",
@@ -64,7 +70,7 @@ EMOJI = {
     "F": "🌀"
 }
 
-# Descriptions shown to the router
+# Descriptions shown to the router (does not include fallback model)
 MODEL_DESCRIPTIONS = {
     "A": "🌟 (gemini-2.5-pro-preview) – top-quality, creative, expensive.",
     "B": "🔷 (o4-mini) – mid-stakes reasoning, cost-effective.",
@@ -142,8 +148,8 @@ def remaining(key: str):
     return ld - ud, lw - uw, lm - um
 
 def record_use(key: str):
-    if key not in MODEL_MAP:
-        logging.error(f"Attempted to record usage for unknown model key: {key}")
+    if key not in MODEL_MAP: # Fallback model key will not be in MODEL_MAP, so this check is important
+        logging.warning(f"Attempted to record usage for unknown or non-standard model key: {key}")
         return
     for blk_key in ("d_u", "w_u", "m_u"):
         if blk_key not in quota: # Initialize if period usage dict doesn't exist
@@ -242,8 +248,11 @@ def streamed(model: str, messages: list, max_tokens_out: int):
 
 def route_choice(user_msg: str, allowed: list[str]) -> str:
     if not allowed:
-        logging.warning("route_choice called with empty allowed list. Defaulting to 'F'.")
-        return "F" # Fallback to F if no models are allowed by quota
+        logging.warning("route_choice called with empty allowed list. Defaulting to 'F' (standard models).")
+        # This fallback within route_choice might be less relevant if pre-check for allowed list emptiness
+        # leads to the global fallback model, but kept for robustness if called directly.
+        return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F")
+
 
     if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
@@ -458,20 +467,23 @@ if current_sid not in sessions:
     st.session_state.sid = current_sid
     st.rerun() 
 
-
 chat_history = sessions[current_sid]["messages"] 
 
 # Display existing messages
 for msg_idx, msg in enumerate(chat_history):
-    avatar_key = msg.get("model") if msg["role"] == "assistant" else "user" 
-    # If assistant used a model key not in EMOJI (e.g. old 'E' messages), default to 'F' for avatar
-    # or provide a generic assistant avatar.
-    if msg["role"] == "assistant" and avatar_key not in EMOJI:
-        avatar_key = "F" # Default to F's emoji for old messages from removed models
-        
-    avatar_map = {"user": "👤", **EMOJI} 
-    avatar = avatar_map.get(avatar_key, "🤖") # Default to robot if key somehow still not found
-    with st.chat_message(msg["role"], avatar=avatar):
+    role = msg["role"]
+    avatar_for_display = "👤" # Default for user
+    if role == "assistant":
+        model_key_in_message = msg.get("model")
+        if model_key_in_message == FALLBACK_MODEL_KEY:
+            avatar_for_display = FALLBACK_MODEL_EMOJI
+        elif model_key_in_message in EMOJI:
+            avatar_for_display = EMOJI[model_key_in_message]
+        else: # Handles old models (like 'E') or any other unknown/nil model key for past messages
+              # Default to F's emoji if F exists and is in EMOJI, else a generic bot.
+            avatar_for_display = EMOJI.get("F", "🤖") 
+            
+    with st.chat_message(role, avatar=avatar_for_display):
         st.markdown(msg["content"])                                       
 
 # Input box
@@ -480,22 +492,35 @@ if prompt := st.chat_input("Ask anything…"):
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
 
-    # Check quotas for currently defined models
-    allowed_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
-    if not allowed_models:
-        st.error("❗ All daily quotas exhausted. Try again tomorrow.")
-        if chat_history and chat_history[-1]["role"] == "user": # Remove last user prompt if no models
-             chat_history.pop()
-        st.stop()
+    # Determine which model to use
+    allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
+    
+    use_fallback_model = False
+    chosen_model_key_for_api = None # This will be 'A', 'B', '_FALLBACK_', etc.
+    model_id_to_use_for_api = None
+    max_tokens_for_api = None
+    avatar_for_response = "🤖" # Default assistant avatar
 
-    chosen_model_key = route_choice(prompt, allowed_models)
-    model_id_to_use = MODEL_MAP[chosen_model_key]
-    max_tokens_for_model  = MAX_TOKENS[chosen_model_key]
+    if not allowed_standard_models:
+        st.info(f"{FALLBACK_MODEL_EMOJI} All standard model daily quotas exhausted. Using free fallback model.")
+        chosen_model_key_for_api = FALLBACK_MODEL_KEY
+        model_id_to_use_for_api = FALLBACK_MODEL_ID
+        max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
+        avatar_for_response = FALLBACK_MODEL_EMOJI
+        use_fallback_model = True
+        logging.info(f"All standard quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
+    else:
+        routed_key = route_choice(prompt, allowed_standard_models)
+        chosen_model_key_for_api = routed_key
+        model_id_to_use_for_api = MODEL_MAP[chosen_model_key_for_api]
+        max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
+        avatar_for_response = EMOJI[chosen_model_key_for_api]
+        # use_fallback_model remains False
 
-    with st.chat_message("assistant", avatar=EMOJI[chosen_model_key]):
+    with st.chat_message("assistant", avatar=avatar_for_response):
         response_placeholder, full_response_content = st.empty(), ""
         api_call_ok = True
-        for chunk, error_message in streamed(model_id_to_use, chat_history, max_tokens_for_model):
+        for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
             if error_message:
                 full_response_content = f"❗ **API Error**: {error_message}"
                 response_placeholder.error(full_response_content)
@@ -506,12 +531,12 @@ if prompt := st.chat_input("Ask anything…"):
                 response_placeholder.markdown(full_response_content + "▌")
         response_placeholder.markdown(full_response_content)
 
-    # Append assistant message, ensuring model key is valid
-    chat_history.append({"role":"assistant","content":full_response_content,"model":chosen_model_key if chosen_model_key in MODEL_MAP else "F"})
-
+    # Append assistant message, storing the actual model key used (standard or fallback)
+    chat_history.append({"role":"assistant","content":full_response_content,"model": chosen_model_key_for_api})
 
     if api_call_ok: 
-        record_use(chosen_model_key)
+        if not use_fallback_model: # Only record use for standard, non-fallback models
+            record_use(chosen_model_key_for_api)
         if sessions[current_sid]["title"] == "New chat":
             sessions[current_sid]["title"] = _autoname(prompt)
     
