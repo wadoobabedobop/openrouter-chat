@@ -198,12 +198,8 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
     )
 
 def streamed(model: str, messages: list, max_tokens_out: int):
-    active_api_key = st.session_state.get("openrouter_api_key")
-    if not active_api_key:
-        logging.error("API Key missing for streamed call.")
-        yield None, "OpenRouter API Key is not set. Please configure it in the sidebar."
-        return
-
+    # API key presence is checked by api_post, which will raise ValueError if not set.
+    # This ValueError is caught below.
     payload = {
         "model":      model,
         "messages":   messages,
@@ -250,7 +246,7 @@ def streamed(model: str, messages: list, max_tokens_out: int):
                 if delta is not None: yield delta, None
     except ValueError as ve: # Catch API key not found from api_post
         logging.error(f"ValueError during streamed call setup: {ve}")
-        yield None, str(ve)
+        yield None, str(ve) # This will now include "OpenRouter API Key not found..."
     except Exception as e: # Catch broader exceptions like connection errors before `with`
         logging.error(f"Streamed API call failed before request: {e}")
         yield None, f"Failed to connect or make request: {e}"
@@ -258,17 +254,18 @@ def streamed(model: str, messages: list, max_tokens_out: int):
 
 # ───────────────────────── Model Routing ───────────────────────
 def route_choice(user_msg: str, allowed: list[str]) -> str:
-    active_api_key = st.session_state.get("openrouter_api_key")
+    active_api_key = st.session_state.get("openrouter_api_key") # Used for pre-check logging
+    # Fallback choice if API call fails, response is invalid, or key is missing for router
+    fallback_choice = "F" if "F" in allowed else (allowed[0] if allowed else "F")
+
     if not active_api_key:
-        logging.warning("Router: API Key not set. Cannot make router call. Falling back.")
-        if "F" in allowed: return "F"
-        if allowed: return allowed[0]
-        return "F" # Ultimate fallback if allowed is empty or F is not in it.
+        logging.warning("Router: API Key not set. Cannot make router call. Falling back to: %s", fallback_choice)
+        return fallback_choice
 
     if not allowed:
         logging.warning("route_choice called with empty allowed list. Defaulting to 'F'.")
-        # This case should ideally not be hit if standard models are defined.
         return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F")
+
 
     if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
@@ -293,7 +290,7 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
     ]
     payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10}
     try:
-        r = api_post(payload_r) # api_post will use the key from session_state
+        r = api_post(payload_r) # api_post will use the key from session_state and raise ValueError if not set
         r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"].strip().upper()
         logging.info(f"Router raw response: {text}")
@@ -301,7 +298,7 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
             if ch in allowed: return ch
     except ValueError as ve: # Catch API key not found from api_post
         logging.error(f"ValueError during router call setup: {ve}")
-        # Fallback logic handles this path
+        # Fallback logic below handles this path
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code
         if status_code == 401:
@@ -311,8 +308,6 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
     except Exception as e:
         logging.error(f"Router call error: {e}")
 
-    # Fallback choice if API call fails or response is invalid
-    fallback_choice = "F" if "F" in allowed else (allowed[0] if allowed else "F")
     logging.warning(f"Router fallback to model: {fallback_choice}")
     return fallback_choice
 
@@ -602,12 +597,12 @@ with st.sidebar:
     st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50)
     st.title("OpenRouter Chat")
 
-    # API Key Configuration Expander
+    # API Key Configuration Expander --- THIS IS THE ADDED UI ---
     with st.expander("API Key Configuration", expanded=not st.session_state.get("openrouter_api_key")):
         current_key_display = "Not set"
         if st.session_state.get("openrouter_api_key"):
             key_val = st.session_state.openrouter_api_key
-            current_key_display = f"••••••••{key_val[-4:]}" if len(key_val) > 4 else "••••"
+            current_key_display = f"••••••••{key_val[-4:]}" if len(key_val) > 8 else "••••" # Masked display
         st.caption(f"Current key: {current_key_display}")
 
         new_api_key_input = st.text_input(
@@ -633,6 +628,7 @@ with st.sidebar:
             else:
                 st.error("Invalid API key format. It should start with 'sk-or-'.")
     st.divider()
+    # --- END OF ADDED UI ---
 
     st.subheader("Daily Jars (Msgs Left)")
     active_model_keys = sorted(MODEL_MAP.keys())
@@ -751,77 +747,77 @@ for msg_idx, msg in enumerate(chat_history):
 # Check for API key before showing chat input
 if not st.session_state.get("openrouter_api_key"):
     st.warning("👋 Please set your OpenRouter API Key in the sidebar (under 'API Key Configuration') to start chatting.")
-    # st.stop() # Optionally stop execution if no API key, to hide chat input below
-else:
-    if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}", disabled=not st.session_state.get("openrouter_api_key")):
-        chat_history.append({"role":"user","content":prompt})
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(prompt)
+    # Chat input below will be disabled due to the 'disabled' flag
 
-        allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
-        use_fallback_model = False
-        chosen_model_key_for_api = None
-        model_id_to_use_for_api = None
-        max_tokens_for_api = None
-        avatar_for_response = "🤖"
+if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}", disabled=not st.session_state.get("openrouter_api_key")):
+    chat_history.append({"role":"user","content":prompt})
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(prompt)
 
-        if not allowed_standard_models:
-            st.info(f"{FALLBACK_MODEL_EMOJI} All standard model daily quotas exhausted. Using free fallback model.")
+    allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
+    use_fallback_model = False
+    chosen_model_key_for_api = None
+    model_id_to_use_for_api = None
+    max_tokens_for_api = None
+    avatar_for_response = "🤖"
+
+    if not allowed_standard_models:
+        st.info(f"{FALLBACK_MODEL_EMOJI} All standard model daily quotas exhausted. Using free fallback model.")
+        chosen_model_key_for_api = FALLBACK_MODEL_KEY
+        model_id_to_use_for_api = FALLBACK_MODEL_ID
+        max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
+        avatar_for_response = FALLBACK_MODEL_EMOJI
+        use_fallback_model = True
+        logging.info(f"All standard quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
+    else:
+        if len(allowed_standard_models) == 1:
+            chosen_model_key_for_api = allowed_standard_models[0]
+            logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
+        else:
+            routed_key = route_choice(prompt, allowed_standard_models)
+            logging.info(f"Router selected model: '{routed_key}'.")
+            chosen_model_key_for_api = routed_key
+
+        if chosen_model_key_for_api not in MODEL_MAP:
+            logging.error(f"Router returned key '{chosen_model_key_for_api}' not in MODEL_MAP. Defaulting to fallback.")
+            st.error(f"Model routing error. Router chose '{chosen_model_key_for_api}' which is not defined. Using global fallback.")
             chosen_model_key_for_api = FALLBACK_MODEL_KEY
             model_id_to_use_for_api = FALLBACK_MODEL_ID
             max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
             avatar_for_response = FALLBACK_MODEL_EMOJI
             use_fallback_model = True
-            logging.info(f"All standard quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
-        else:
-            if len(allowed_standard_models) == 1:
-                chosen_model_key_for_api = allowed_standard_models[0]
-                logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
-            else:
-                routed_key = route_choice(prompt, allowed_standard_models)
-                logging.info(f"Router selected model: '{routed_key}'.")
-                chosen_model_key_for_api = routed_key
-
-            if chosen_model_key_for_api not in MODEL_MAP:
-                logging.error(f"Router returned key '{chosen_model_key_for_api}' not in MODEL_MAP. Defaulting to fallback.")
-                st.error(f"Model routing error. Router chose '{chosen_model_key_for_api}' which is not defined. Using global fallback.")
-                chosen_model_key_for_api = FALLBACK_MODEL_KEY
-                model_id_to_use_for_api = FALLBACK_MODEL_ID
-                max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
-                avatar_for_response = FALLBACK_MODEL_EMOJI
-                use_fallback_model = True
-            else: # chosen_model_key_for_api is valid and in MODEL_MAP
-                model_id_to_use_for_api = MODEL_MAP[chosen_model_key_for_api]
-                max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
-                avatar_for_response = EMOJI[chosen_model_key_for_api]
+        else: # chosen_model_key_for_api is valid and in MODEL_MAP
+            model_id_to_use_for_api = MODEL_MAP[chosen_model_key_for_api]
+            max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
+            avatar_for_response = EMOJI[chosen_model_key_for_api]
 
 
-        with st.chat_message("assistant", avatar=avatar_for_response):
-            response_placeholder, full_response_content = st.empty(), ""
-            api_call_ok = True
-            for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
-                if error_message:
-                    full_response_content = f"❗ **API Error**: {error_message}"
-                    response_placeholder.error(full_response_content)
-                    api_call_ok = False; break
-                if chunk:
-                    full_response_content += chunk
-                    response_placeholder.markdown(full_response_content + "▌")
-            response_placeholder.markdown(full_response_content)
+    with st.chat_message("assistant", avatar=avatar_for_response):
+        response_placeholder, full_response_content = st.empty(), ""
+        api_call_ok = True
+        for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
+            if error_message:
+                full_response_content = f"❗ **API Error**: {error_message}"
+                response_placeholder.error(full_response_content)
+                api_call_ok = False; break
+            if chunk:
+                full_response_content += chunk
+                response_placeholder.markdown(full_response_content + "▌")
+        response_placeholder.markdown(full_response_content)
 
-        chat_history.append({"role":"assistant","content":full_response_content,"model": chosen_model_key_for_api})
+    chat_history.append({"role":"assistant","content":full_response_content,"model": chosen_model_key_for_api})
 
-        if api_call_ok:
-            # Only record use if it was NOT a fallback model and the key is a standard model key
-            if not use_fallback_model and chosen_model_key_for_api in MODEL_MAP:
-                 record_use(chosen_model_key_for_api)
+    if api_call_ok:
+        # Only record use if it was NOT a fallback model and the key is a standard model key
+        if not use_fallback_model and chosen_model_key_for_api in MODEL_MAP:
+             record_use(chosen_model_key_for_api)
 
-            if sessions[current_sid]["title"] == "New chat" and sessions[current_sid]["messages"]:
-                sessions[current_sid]["title"] = _autoname(prompt)
-                _delete_unused_blank_sessions(keep_sid=current_sid)
+        if sessions[current_sid]["title"] == "New chat" and sessions[current_sid]["messages"]:
+            sessions[current_sid]["title"] = _autoname(prompt)
+            _delete_unused_blank_sessions(keep_sid=current_sid)
 
-        _save(SESS_FILE, sessions)
-        st.rerun()
+    _save(SESS_FILE, sessions)
+    st.rerun()
 
 # ───────────────────────── Self-Relaunch ──────────────────────
 if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
