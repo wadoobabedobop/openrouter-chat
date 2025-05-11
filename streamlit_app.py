@@ -722,7 +722,15 @@ else:
             left, _, _ = remaining(m_key); lim, _, _  = PLAN[m_key]
             pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0) # Avoid div by zero
             fill = int(pct * 100)
-            if pct > .5: color = "#4caf50"; elif pct > .25: color = "#ffc107"; else: color = "#f44336"
+            
+            # CORRECTED SYNTAX FOR IF/ELIF/ELSE BLOCK:
+            if pct > 0.5: 
+                color = "#4caf50"
+            elif pct > 0.25: 
+                color = "#ffc107"
+            else: 
+                color = "#f44336"
+            
             # Ensure EMOJI[m_key] exists or provide a fallback
             emoji_char = EMOJI.get(m_key, "❔")
             cols[i].markdown(f"""
