@@ -116,7 +116,8 @@ def _load_quota():
                 logging.info(f"Removed old model key '{k_rem}' from quota usage '{period_usage_key}'.")
     _reset(q, "d", _today(), zeros)
     _reset(q, "w", _yweek(), zeros)
-    _reset(q, "m", _ymonth(), zeros)
+    _reset(q, "m", _ymonth(), zeros
+    )
     _save(QUOTA_FILE, q)
     return q
 
@@ -198,8 +199,6 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
     )
 
 def streamed(model: str, messages: list, max_tokens_out: int):
-    # API key presence is checked by api_post, which will raise ValueError if not set.
-    # This ValueError is caught below.
     payload = {
         "model":      model,
         "messages":   messages,
@@ -207,7 +206,7 @@ def streamed(model: str, messages: list, max_tokens_out: int):
         "max_tokens": max_tokens_out
     }
     try:
-        with api_post(payload, stream=True) as r: # api_post will use the key from session_state
+        with api_post(payload, stream=True) as r:
             try:
                 r.raise_for_status()
             except requests.exceptions.HTTPError as e:
@@ -246,7 +245,7 @@ def streamed(model: str, messages: list, max_tokens_out: int):
                 if delta is not None: yield delta, None
     except ValueError as ve: # Catch API key not found from api_post
         logging.error(f"ValueError during streamed call setup: {ve}")
-        yield None, str(ve) # This will now include "OpenRouter API Key not found..."
+        yield None, str(ve)
     except Exception as e: # Catch broader exceptions like connection errors before `with`
         logging.error(f"Streamed API call failed before request: {e}")
         yield None, f"Failed to connect or make request: {e}"
@@ -254,18 +253,16 @@ def streamed(model: str, messages: list, max_tokens_out: int):
 
 # ───────────────────────── Model Routing ───────────────────────
 def route_choice(user_msg: str, allowed: list[str]) -> str:
-    active_api_key = st.session_state.get("openrouter_api_key") # Used for pre-check logging
-    # Fallback choice if API call fails, response is invalid, or key is missing for router
+    active_api_key = st.session_state.get("openrouter_api_key")
     fallback_choice = "F" if "F" in allowed else (allowed[0] if allowed else "F")
 
-    if not active_api_key:
-        logging.warning("Router: API Key not set. Cannot make router call. Falling back to: %s", fallback_choice)
+    if not (active_api_key and active_api_key.startswith("sk-or-")):
+        logging.warning(f"Router: API Key not set or invalid. Cannot make router call. Falling back to: {fallback_choice}")
         return fallback_choice
 
     if not allowed:
         logging.warning("route_choice called with empty allowed list. Defaulting to 'F'.")
         return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F")
-
 
     if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
@@ -290,15 +287,14 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
     ]
     payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10}
     try:
-        r = api_post(payload_r) # api_post will use the key from session_state and raise ValueError if not set
+        r = api_post(payload_r)
         r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"].strip().upper()
         logging.info(f"Router raw response: {text}")
         for ch in text:
             if ch in allowed: return ch
-    except ValueError as ve: # Catch API key not found from api_post
+    except ValueError as ve:
         logging.error(f"ValueError during router call setup: {ve}")
-        # Fallback logic below handles this path
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code
         if status_code == 401:
@@ -314,8 +310,8 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
 # ───────────────────── Credits Endpoint ───────────────────────
 def get_credits():
     active_api_key = st.session_state.get("openrouter_api_key")
-    if not active_api_key:
-        logging.warning("Could not fetch /credits: API Key not set.")
+    if not (active_api_key and active_api_key.startswith("sk-or-")): # Also check format here
+        logging.warning("Could not fetch /credits: API Key not set or invalid.")
         return None, None, None
     try:
         r = requests.get(
@@ -587,7 +583,7 @@ if needs_save_and_rerun_on_startup:
 if "credits" not in st.session_state:
     st.session_state.credits = dict(zip(
         ("total", "used", "remaining"),
-        get_credits() # This will now check for API key internally
+        get_credits()
     ))
     st.session_state.credits_ts = time.time()
 
@@ -597,21 +593,25 @@ with st.sidebar:
     st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50)
     st.title("OpenRouter Chat")
 
-    # API Key Configuration Expander --- THIS IS THE ADDED UI ---
-    with st.expander("API Key Configuration", expanded=not st.session_state.get("openrouter_api_key")):
+    # API Key Configuration Expander
+    current_api_key_in_state = st.session_state.get("openrouter_api_key")
+    # Expander is open if key is not set OR if it's set but invalid format
+    expander_open_by_default = not (current_api_key_in_state and current_api_key_in_state.startswith("sk-or-"))
+
+    with st.expander("API Key Configuration", expanded=expander_open_by_default):
         current_key_display = "Not set"
-        if st.session_state.get("openrouter_api_key"):
-            key_val = st.session_state.openrouter_api_key
-            current_key_display = f"••••••••{key_val[-4:]}" if len(key_val) > 8 else "••••" # Masked display
+        if current_api_key_in_state:
+            key_val = current_api_key_in_state
+            current_key_display = f"••••••••{key_val[-4:]}" if len(key_val) > 8 else "••••"
         st.caption(f"Current key: {current_key_display}")
 
         new_api_key_input = st.text_input(
             "Enter new OpenRouter API Key",
             type="password",
-            key="api_key_input_field",
+            key="api_key_input_field", # Unique key for the input field
             placeholder="sk-or-..."
         )
-        if st.button("Save API Key", key="save_api_key_button"):
+        if st.button("Save API Key", key="save_api_key_button"): # Unique key for the button
             if new_api_key_input and new_api_key_input.startswith("sk-or-"):
                 st.session_state.openrouter_api_key = new_api_key_input
                 _save_app_config(new_api_key_input)
@@ -628,7 +628,6 @@ with st.sidebar:
             else:
                 st.error("Invalid API key format. It should start with 'sk-or-'.")
     st.divider()
-    # --- END OF ADDED UI ---
 
     st.subheader("Daily Jars (Msgs Left)")
     active_model_keys = sorted(MODEL_MAP.keys())
@@ -707,8 +706,8 @@ with st.sidebar:
             st.session_state.credits_ts = time.time()
             st.rerun()
         if tot is None:
-            if not st.session_state.get("openrouter_api_key"):
-                st.warning("Set API Key to fetch credits.")
+            if not (current_api_key_in_state and current_api_key_in_state.startswith("sk-or-")):
+                st.warning("Set a valid API Key to fetch credits.")
             else:
                 st.warning("Could not fetch credits. Check API key or network.")
         else:
@@ -745,11 +744,12 @@ for msg_idx, msg in enumerate(chat_history):
         st.markdown(msg["content"])
 
 # Check for API key before showing chat input
-if not st.session_state.get("openrouter_api_key"):
-    st.warning("👋 Please set your OpenRouter API Key in the sidebar (under 'API Key Configuration') to start chatting.")
-    # Chat input below will be disabled due to the 'disabled' flag
+is_api_key_valid_and_present = current_api_key_in_state and current_api_key_in_state.startswith("sk-or-")
 
-if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}", disabled=not st.session_state.get("openrouter_api_key")):
+if not is_api_key_valid_and_present:
+    st.warning("👋 Please set your OpenRouter API Key in the sidebar (under 'API Key Configuration') to start chatting.")
+
+if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}", disabled=not is_api_key_valid_and_present):
     chat_history.append({"role":"user","content":prompt})
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
@@ -774,18 +774,32 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}", d
             chosen_model_key_for_api = allowed_standard_models[0]
             logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
         else:
+            # route_choice now also checks for valid API key format before making a call
             routed_key = route_choice(prompt, allowed_standard_models)
             logging.info(f"Router selected model: '{routed_key}'.")
             chosen_model_key_for_api = routed_key
 
         if chosen_model_key_for_api not in MODEL_MAP:
-            logging.error(f"Router returned key '{chosen_model_key_for_api}' not in MODEL_MAP. Defaulting to fallback.")
-            st.error(f"Model routing error. Router chose '{chosen_model_key_for_api}' which is not defined. Using global fallback.")
-            chosen_model_key_for_api = FALLBACK_MODEL_KEY
-            model_id_to_use_for_api = FALLBACK_MODEL_ID
-            max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
-            avatar_for_response = FALLBACK_MODEL_EMOJI
-            use_fallback_model = True
+            # This condition can be hit if router fails and falls back to 'F',
+            # OR if router returns an unexpected key.
+            # If router explicitly chose fallback due to no API key, this logic is fine.
+            logging.warning(f"Selected model key '{chosen_model_key_for_api}' not in standard MODEL_MAP. Checking if it's a fallback.")
+            if chosen_model_key_for_api == FALLBACK_MODEL_KEY or (chosen_model_key_for_api == "F" and FALLBACK_MODEL_ID == MODEL_MAP.get("F")): # A bit redundant, but safe
+                 st.info(f"{FALLBACK_MODEL_EMOJI} Router/system selected fallback. Using free fallback model.")
+                 chosen_model_key_for_api = FALLBACK_MODEL_KEY
+                 model_id_to_use_for_api = FALLBACK_MODEL_ID
+                 max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
+                 avatar_for_response = FALLBACK_MODEL_EMOJI
+                 use_fallback_model = True
+            else:
+                # This is a more serious error state where router returned something unexpected that isn't the known fallback.
+                logging.error(f"Router returned key '{chosen_model_key_for_api}' not in MODEL_MAP and not a recognized fallback. Using global fallback.")
+                st.error(f"Model routing error. Router chose '{chosen_model_key_for_api}' which is not defined or recognized. Using global fallback.")
+                chosen_model_key_for_api = FALLBACK_MODEL_KEY
+                model_id_to_use_for_api = FALLBACK_MODEL_ID
+                max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
+                avatar_for_response = FALLBACK_MODEL_EMOJI
+                use_fallback_model = True
         else: # chosen_model_key_for_api is valid and in MODEL_MAP
             model_id_to_use_for_api = MODEL_MAP[chosen_model_key_for_api]
             max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
