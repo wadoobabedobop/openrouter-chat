@@ -4,11 +4,30 @@ OpenRouter Streamlit Chat — Full Edition (Redesigned UI - Polished & Error Han
 """
 
 # ───────────────────────── Imports ─────────────────────────
-import json, logging, os, sys, subprocess, time, requests, re
+import json
+import logging # Keep this basic for now
+import os
+import sys
+import subprocess
+import time
+import requests
+import re
 from datetime import datetime, date
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import streamlit as st
+
+# ─────────────────────────── Logging Setup (Simplified for Cloud) ─────────────────
+# Basic configuration at the top level
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(module)s:%(lineno)d | %(message)s", # Added module and lineno
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,
+    force=True # Try to force override any other configurations
+)
+logger = logging.getLogger(__name__)
+
 
 # ────────────────────────── Configuration ───────────────────
 OPENROUTER_API_KEY  = "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" # Replace
@@ -43,7 +62,7 @@ MODEL_DESCRIPTIONS = {
     "F": "🌀 (gemini-2.5-flash-preview) – Quick, general purpose."
 }
 
-TZ = ZoneInfo("Australia/Sydney") # Replace with your timezone
+TZ = ZoneInfo("Australia/Sydney")
 DATA_DIR   = Path(__file__).parent
 SESS_FILE  = DATA_DIR / "chat_sessions.json"
 QUOTA_FILE = DATA_DIR / "quotas.json"
@@ -73,18 +92,18 @@ def _load_quota():
             keys_to_remove = [k for k in current_usage_dict if k not in MODEL_MAP]
             for k_rem in keys_to_remove:
                 del current_usage_dict[k_rem]
-                logging.info(f"Removed old model key '{k_rem}' from quota usage '{period_usage_key}'.")
+                logger.info(f"Removed old model key '{k_rem}' from quota usage '{period_usage_key}'.")
     _reset(q, "d", _today(), zeros); _reset(q, "w", _yweek(), zeros); _reset(q, "m", _ymonth(), zeros)
     _save(QUOTA_FILE, q); return q
 quota = _load_quota()
 
 def remaining(key: str):
     ud = quota.get("d_u", {}).get(key, 0); uw = quota.get("w_u", {}).get(key, 0); um = quota.get("m_u", {}).get(key, 0)
-    if key not in PLAN: logging.error(f"Unknown key for remaining: {key}"); return 0,0,0
+    if key not in PLAN: logger.error(f"Unknown key for remaining: {key}"); return 0,0,0
     ld, lw, lm = PLAN[key]; return ld - ud, lw - uw, lm - um
 
 def record_use(key: str):
-    if key not in MODEL_MAP: logging.warning(f"Unknown model key for record_use: {key}"); return
+    if key not in MODEL_MAP: logger.warning(f"Unknown model key for record_use: {key}"); return
     for blk_key in ("d_u", "w_u", "m_u"):
         if blk_key not in quota: quota[blk_key] = {k: 0 for k in MODEL_MAP}
         quota[blk_key][key] = quota[blk_key].get(key, 0) + 1
@@ -94,7 +113,7 @@ def record_use(key: str):
 def _delete_unused_blank_sessions(keep_sid: str = None):
     sids_to_delete = [sid for sid, data in sessions.items() if sid != keep_sid and data.get("title") == "New chat" and not data.get("messages")]
     if sids_to_delete:
-        for sid_del in sids_to_delete: logging.info(f"Auto-deleting blank session: {sid_del}"); del sessions[sid_del]
+        for sid_del in sids_to_delete: logger.info(f"Auto-deleting blank session: {sid_del}"); del sessions[sid_del]
         return True
     return False
 sessions = _load(SESS_FILE, {})
@@ -106,19 +125,10 @@ def _autoname(seed: str) -> str:
     words = seed.strip().split(); cand = " ".join(words[:3]) or "Chat"
     return (cand[:25] + "…") if len(cand) > 25 else cand
 
-# ─────────────────────────── Logging ────────────────────────────
-# Configure logging with timestamps
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S", # Consistent timestamp format
-    stream=sys.stdout
-)
-
 # ────────────────────────── API Calls ──────────────────────────
 def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT):
     headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type":  "application/json"}
-    logging.info(f"POST /chat/completions → model={payload.get('model')}, stream={stream}, max_tokens={payload.get('max_tokens')}")
+    logger.info(f"POST /chat/completions → model={payload.get('model')}, stream={stream}, max_tokens={payload.get('max_tokens')}")
     return requests.post(f"{OPENROUTER_API_BASE}/chat/completions", headers=headers, json=payload, stream=stream, timeout=timeout)
 
 def streamed(model: str, messages: list, max_tokens_out: int):
@@ -126,37 +136,37 @@ def streamed(model: str, messages: list, max_tokens_out: int):
     with api_post(payload, stream=True) as r:
         try: r.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            text = r.text; logging.error(f"Stream HTTPError {e.response.status_code}: {text}"); yield None, f"HTTP {e.response.status_code}: {text}"; return
+            text = r.text; logger.error(f"Stream HTTPError {e.response.status_code}: {text}"); yield None, f"HTTP {e.response.status_code}: {text}"; return
         for line in r.iter_lines():
             if not line: continue
             line_str = line.decode("utf-8")
             if line_str.startswith(": OPENROUTER PROCESSING"):
-                logging.info(f"OpenRouter PING: {line_str.strip()}")
+                logger.info(f"OpenRouter PING: {line_str.strip()}")
                 continue
             if not line_str.startswith("data: "):
-                logging.warning(f"Unexpected non-event-stream line (decoded): {line_str.strip()}")
+                logger.warning(f"Unexpected non-event-stream line (decoded): {line_str.strip()}")
                 continue
             data = line_str[6:].strip()
             if data == "[DONE]": break
             try: chunk = json.loads(data)
-            except json.JSONDecodeError: logging.error(f"Bad JSON chunk: {data}"); yield None, "Error decoding response chunk"; return
+            except json.JSONDecodeError: logger.error(f"Bad JSON chunk: {data}"); yield None, "Error decoding response chunk"; return
 
             if "error" in chunk:
                 msg_obj = chunk["error"]
                 msg = "Unknown API error in stream chunk"
                 if isinstance(msg_obj, dict) and "message" in msg_obj: msg = msg_obj["message"]
-                logging.error(f"API stream chunk error: {msg}"); yield None, msg; return
+                logger.error(f"API stream chunk error: {msg}"); yield None, msg; return
 
             delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content")
             if delta is not None: yield delta, None
 
 # ───────────────────────── Model Routing ───────────────────────
 def route_choice(user_msg: str, allowed: list[str]) -> str:
-    if not allowed: # Should ideally not happen if fallback logic is sound upstream
-        logging.warning("Router: No models allowed, defaulting to F or first available.")
-        return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F") # Fallback if MODEL_MAP itself is somehow empty
+    if not allowed:
+        logger.warning("Router: No models allowed, defaulting to F or first available.")
+        return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F")
     if len(allowed) == 1:
-        logging.info(f"Router: Only one model allowed ({allowed[0]}), selecting it directly.")
+        logger.info(f"Router: Only one model allowed ({allowed[0]}), selecting it directly.")
         return allowed[0]
 
     system_lines = ["You are an intelligent model-routing assistant.", "Select ONLY one letter from the following available models:"]
@@ -165,7 +175,7 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
             desc_for_router = MODEL_DESCRIPTIONS[k].split('–')[1].strip() if '–' in MODEL_DESCRIPTIONS[k] else MODEL_DESCRIPTIONS[k]
             system_lines.append(f"- {k}: {MODEL_MAP[k].split('/')[-1]} ({desc_for_router})")
         else:
-            system_lines.append(f"- {k}: {MODEL_MAP[k].split('/')[-1]}") # Fallback if no description
+            system_lines.append(f"- {k}: {MODEL_MAP[k].split('/')[-1]}")
 
     system_lines.extend(["Based on the user's query, choose the letter that best balances quality, speed, and cost-sensitivity.", "Respond with ONLY the single capital letter. No extra text."])
 
@@ -177,39 +187,35 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         r_json = r.json()
 
         if "error" in r_json:
-            logging.error(f"Router API returned an error object: {r_json['error']}")
+            logger.error(f"Router API returned an error object: {r_json['error']}")
         elif "choices" not in r_json or not r_json["choices"] or "message" not in r_json["choices"][0] or "content" not in r_json["choices"][0]["message"]:
-            logging.error(f"Router API response malformed: {r_json}")
+            logger.error(f"Router API response malformed: {r_json}")
         else:
             raw_text = r_json["choices"][0]["message"]["content"].strip().upper()
-            logging.info(f"Router raw response: '{raw_text}'")
+            logger.info(f"Router raw response: '{raw_text}'")
 
-            # Attempt 1: Find a single, standalone allowed letter (most ideal)
             for letter_allowed in sorted(allowed):
                 if re.search(rf"\b{re.escape(letter_allowed)}\b", raw_text):
-                    logging.info(f"Router selected model: '{letter_allowed}' (standalone regex match).")
+                    logger.info(f"Router selected model: '{letter_allowed}' (standalone regex match).")
                     return letter_allowed
-
-            # Attempt 2: Find the first character in the raw_text that is an allowed letter
             for char_code in raw_text:
                 if char_code in allowed:
-                    logging.info(f"Router selected model: '{char_code}' (first character match).")
+                    logger.info(f"Router selected model: '{char_code}' (first character match).")
                     return char_code
-            logging.warning(f"Router response '{raw_text}' did not contain an identifiable allowed model from {allowed}. Falling back.")
-    except requests.exceptions.RequestException as e: logging.error(f"Router API call failed (RequestException): {e}")
-    except json.JSONDecodeError as e: logging.error(f"Router API response not valid JSON: {e}")
-    except Exception as e: logging.error(f"Unexpected error during router call: {e}")
+            logger.warning(f"Router response '{raw_text}' did not contain an identifiable allowed model from {allowed}. Falling back.")
+    except requests.exceptions.RequestException as e: logger.error(f"Router API call failed (RequestException): {e}")
+    except json.JSONDecodeError as e: logger.error(f"Router API response not valid JSON: {e}")
+    except Exception as e: logger.error(f"Unexpected error during router call: {e}")
 
     fallback_choice = "F" if "F" in allowed else allowed[0]
-    logging.warning(f"Router falling back to model: {fallback_choice}"); return fallback_choice
-
+    logger.warning(f"Router falling back to model: {fallback_choice}"); return fallback_choice
 
 # ───────────────────── Credits Endpoint ───────────────────────
 def get_credits():
     try:
         r = requests.get(f"{OPENROUTER_API_BASE}/credits", headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"}, timeout=10)
         r.raise_for_status(); d = r.json()["data"]; return d["total_credits"], d["total_usage"], d["total_credits"] - d["total_usage"]
-    except Exception as e: logging.warning(f"Could not fetch /credits: {e}"); return None, None, None
+    except Exception as e: logger.warning(f"Could not fetch /credits: {e}"); return None, None, None
 
 # ───────────────────────── UI Styling ──────────────────────────
 def load_custom_css():
@@ -570,15 +576,16 @@ if "sid" not in st.session_state:
     st.session_state.sid = _new_sid()
     needs_save_and_rerun_on_startup = True
 elif st.session_state.sid not in sessions:
-    logging.warning(f"Session ID {st.session_state.sid} from state not found in loaded sessions. Creating a new chat.")
+    logger.warning(f"Session ID {st.session_state.sid} from state not found in loaded sessions. Creating a new chat.")
     st.session_state.sid = _new_sid()
     needs_save_and_rerun_on_startup = True
 else:
     if _delete_unused_blank_sessions(keep_sid=st.session_state.sid):
         needs_save_and_rerun_on_startup = True
+
 if needs_save_and_rerun_on_startup:
     _save(SESS_FILE, sessions)
-    st.rerun()
+    st.rerun() # CORRECTED
 
 if "credits" not in st.session_state:
     st.session_state.credits = dict(zip(("total", "used", "remaining"), get_credits()))
@@ -600,13 +607,13 @@ with st.sidebar:
     if st.button("➕ New Chat", key="new_chat_button_top", use_container_width=True, type="primary", disabled=current_session_is_truly_blank):
         st.session_state.sid = _new_sid()
         _save(SESS_FILE, sessions)
-        st.rerun()
+        st.rerun() # CORRECTED
 
     st.markdown("---")
 
     with st.expander("Model Usage (Daily)", expanded=True):
         active_model_keys = sorted(MODEL_MAP.keys())
-        for m_key in active_model_keys:
+        for m_key_idx, m_key in enumerate(active_model_keys): # Use enumerate for unique popover labels if needed
             left_d, _, _ = remaining(m_key)
             lim_d, _, _  = PLAN[m_key]
 
@@ -638,8 +645,11 @@ with st.sidebar:
             </div>
             """, unsafe_allow_html=True)
 
-            # Removed 'key' argument from st.popover due to TypeError in user's deployment logs
-            with st.popover(f"Details: {m_key}", use_container_width=True):
+            # Removed 'key' argument from st.popover due to TypeError in deployment logs
+            # If keys are truly needed for popovers (e.g. if you have many), a workaround would be
+            # to generate unique labels for each popover if the content is identical.
+            # For now, removing `key` is the safest approach given the logs.
+            with st.popover(f"Details: {m_key} ({m_key_idx})", use_container_width=True): # Added index to label for uniqueness
                 st.markdown(f"**{MODEL_DESCRIPTIONS.get(m_key, 'No description available.')}**")
                 st.markdown(f"**Model ID:** `{MODEL_MAP.get(m_key, 'N/A')}`")
                 st.markdown(f"**Max Output Tokens:** {MAX_TOKENS.get(m_key, 'N/A'):,}")
@@ -667,7 +677,7 @@ with st.sidebar:
                 st.session_state.sid = sid_key_loop
                 if _delete_unused_blank_sessions(keep_sid=sid_key_loop):
                     _save(SESS_FILE, sessions)
-                st.rerun()
+                st.rerun() # CORRECTED
     st.markdown("---")
 
     st.caption(f"Routing via: {ROUTER_MODEL_ID.split('/')[-1]}")
@@ -677,7 +687,7 @@ with st.sidebar:
         if st.button("Refresh Credits", key="refresh_credits_button", use_container_width=True):
             st.session_state.credits = dict(zip(("total","used","remaining"), get_credits()))
             st.session_state.credits_ts = time.time()
-            st.rerun()
+            st.rerun() # CORRECTED
         if tot is None: st.warning("Could not fetch credits.")
         else:
             st.markdown(f"**Purchased:** ${tot:.2f} cr\n\n**Used:** ${used:.2f} cr\n\n**Remaining:** ${rem:.2f} cr")
@@ -687,11 +697,11 @@ with st.sidebar:
 # ────────────────────────── Main Chat Panel ─────────────────────
 current_sid = st.session_state.sid
 if current_sid not in sessions:
-    st.error("Chat session error. Creating new.")
+    logger.error("Chat session error. Creating new.") # Use logger
     current_sid = _new_sid()
     st.session_state.sid = current_sid
     _save(SESS_FILE, sessions)
-    st.rerun()
+    st.rerun() # CORRECTED
 
 chat_history = sessions[current_sid]["messages"]
 is_new_empty_chat = not chat_history and sessions[current_sid]["title"] == "New chat"
@@ -724,37 +734,38 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
     model_id_to_use = FALLBACK_MODEL_ID
     max_tokens_api = FALLBACK_MODEL_MAX_TOKENS
     avatar_resp = FALLBACK_MODEL_EMOJI
-    use_fallback = not allowed_standard_models # Initial assumption
+    use_fallback = not allowed_standard_models
 
     if not allowed_standard_models:
-        logging.info("No standard models have daily quota remaining. Using fallback model directly.")
-        use_fallback = True # Explicitly set to true
-    else: # Only route if there are standard models available
+        logger.info("No standard models have daily quota remaining. Using fallback model directly.")
+        use_fallback = True
+    else:
         chosen_model_key_for_response = route_choice(prompt, allowed_standard_models)
-        logging.info(f"Router chose model key: '{chosen_model_key_for_response}' for current response.")
+        logger.info(f"Router chose model key: '{chosen_model_key_for_response}' for current response.")
 
         if chosen_model_key_for_response in MODEL_MAP:
             model_id_to_use = MODEL_MAP[chosen_model_key_for_response]
             max_tokens_api = MAX_TOKENS[chosen_model_key_for_response]
             avatar_resp = EMOJI[chosen_model_key_for_response]
-            use_fallback = False # A valid standard model was chosen
+            use_fallback = False
         else:
-            logging.warning(f"Router returned invalid key '{chosen_model_key_for_response}' or it's not in MODEL_MAP. Forcing fallback.")
+            logger.warning(f"Router returned invalid key '{chosen_model_key_for_response}' or it's not in MODEL_MAP. Forcing fallback.")
             use_fallback = True
-            # Reset to fallback values if router gives bad key
             chosen_model_key_for_response = FALLBACK_MODEL_KEY
             model_id_to_use = FALLBACK_MODEL_ID
             max_tokens_api = FALLBACK_MODEL_MAX_TOKENS
             avatar_resp = FALLBACK_MODEL_EMOJI
 
-
-    if use_fallback: # This ensures fallback is used if no models allowed OR router failed
+    if use_fallback:
+        # This info message might be redundant if fallback due to no quota, but fine for router failure.
         st.info(f"{FALLBACK_MODEL_EMOJI} Using fallback model: {FALLBACK_MODEL_ID.split('/')[-1]}")
-        logging.info(f"Final decision: Using fallback model: {FALLBACK_MODEL_ID}")
+        logger.info(f"Final decision: Using fallback model: {FALLBACK_MODEL_ID}")
+        # Ensure all fallback parameters are set if use_fallback is true for any reason
         chosen_model_key_for_response = FALLBACK_MODEL_KEY
         model_id_to_use = FALLBACK_MODEL_ID
         max_tokens_api = FALLBACK_MODEL_MAX_TOKENS
         avatar_resp = FALLBACK_MODEL_EMOJI
+
 
     response_content, api_ok = "", True
 
@@ -779,21 +790,30 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
         _delete_unused_blank_sessions(keep_sid=current_sid)
 
     _save(SESS_FILE, sessions)
-    st.rerun()
+    st.rerun() # CORRECTED
 
-# ───────────────────────── Self-Relaunch ──────────────────────
-if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
-    os.environ["_IS_STRL"] = "1"; port = os.getenv("PORT", "8501")
-    try:
-        import socket
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("0.0.0.0", int(port)))
-        can_bind = True
-    except socket.error:
-        can_bind = False
+# ───────────────────────── Self-Relaunch (Local Development Only) ──────────────────────
+# This block should ideally be removed or commented out for Streamlit Cloud deployment
+# as it can interfere with the platform's process management.
+# If you need to run it locally with this, uncomment it.
+# For Streamlit Cloud, the platform handles running the script.
+#
+# if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
+#     logger.info("Attempting local self-relaunch for development...")
+#     os.environ["_IS_STRL"] = "1"; port = os.getenv("PORT", "8501")
+#     try:
+#         import socket
+#         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+#             s.bind(("0.0.0.0", int(port)))
+#         can_bind = True
+#     except socket.error:
+#         can_bind = False
 
-    if can_bind:
-        cmd = [sys.executable, "-m", "streamlit", "run", __file__, "--server.port", port, "--server.address", "0.0.0.0"]
-        logging.info(f"Relaunching with Streamlit: {' '.join(cmd)}"); subprocess.run(cmd, check=False)
-    else:
-        logging.info(f"Port {port} already in use. Assuming Streamlit is already running or will be managed externally.")
+#     if can_bind:
+#         cmd = [sys.executable, "-m", "streamlit", "run", __file__, "--server.port", port, "--server.address", "0.0.0.0"]
+#         logger.info(f"Relaunching with Streamlit: {' '.join(cmd)}"); subprocess.run(cmd, check=False)
+#     else:
+#         logger.info(f"Port {port} already in use. Assuming Streamlit is already running or will be managed externally.")
+# else:
+#    if __name__ == "__main__":
+#        logger.info("Script running (likely on Streamlit Cloud or already relaunched).")
