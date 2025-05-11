@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- # THIS SHOULD BE LINE 2
 """
 OpenRouter Streamlit Chat — Full Edition
 • Persistent chat sessions
@@ -12,14 +12,14 @@ OpenRouter Streamlit Chat — Full Edition
 • In-app API Key configuration (via Settings panel or initial setup)
 """
 
-# ------------------------- Imports -------------------------
+# ------------------------- Imports ------------------------- # USE STANDARD HYPHENS AND '#' FOR COMMENTS
 import json, logging, os, sys, subprocess, time, requests
 from datetime import datetime, date
 from pathlib import Path
 from zoneinfo import ZoneInfo # Python 3.9+
 import streamlit as st
 
-# -------------------------- Configuration ---------------------------
+# -------------------------- Configuration --------------------------- # USE STANDARD HYPHENS AND '#'
 # OPENROUTER_API_KEY  is now managed via app_config.json and st.session_state
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT     = 120
