@@ -38,7 +38,7 @@ MODEL_MAP = {
     "D": "deepseek/deepseek-r1",
     "F": "google/gemini-2.5-flash-preview"
 }
-ROUTER_MODEL_ID = "mistralai/mistral-7b-instruct:free"
+ROUTER_MODEL_ID = "deepseek/deepseek-v3-base:free"
 MAX_HISTORY_CHARS_FOR_ROUTER = 3000  # Approx. 750 tokens for history context
 
 MAX_TOKENS = {
