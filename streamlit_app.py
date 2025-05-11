@@ -339,7 +339,7 @@ def load_custom_css():
             background-color: color-mix(in srgb, var(--primary-color) 10%, transparent) !important;
         }
 
-        /* MODIFIED: Sidebar buttons (chat list) text alignment */
+        /* REVISED: Sidebar buttons (chat list) text alignment */
         [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {
             border-radius: 6px; border: none;
             padding: 0.6rem 0.75rem; font-size: 0.875rem; font-weight: 400;
@@ -348,8 +348,8 @@ def load_custom_css():
             width: 100%; margin-bottom: 0.2rem;
             display: flex; align-items: center; gap: 8px;
             border-left: 3px solid transparent;
-            justify-content: flex-start !important; /* Ensure content aligns left */
-            text-align: left; /* Ensure text within button content is left-aligned */
+            justify-content: flex-start !important; /* Ensure content blocks align left */
+            text-align: left !important; /* Ensure text within button is left-aligned */
         }
         html[data-theme="light"] [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) { color: #4A5568; }
 
@@ -362,13 +362,14 @@ def load_custom_css():
             border-left-color: #CBD5E0;
         }
 
-        /* Active chat button still needs justify-content */
+        /* Active chat button also needs these alignments */
         [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):has(span:contains("🔹")) {
             color: var(--primary-color) !important;
             background-color: color-mix(in srgb, var(--primary-color) 10%, transparent);
             border-left: 3px solid var(--primary-color);
             font-weight: 500;
-            justify-content: flex-start !important; /* Ensure active also aligns left */
+            justify-content: flex-start !important;
+            text-align: left !important;
         }
 
         [data-testid="stSidebar"] .stCaption {
@@ -399,39 +400,49 @@ def load_custom_css():
             font-size: 1rem; color: var(--text-color-secondary); max-width: 450px; line-height: 1.6;
         }
 
-        /* MODIFIED: User Input Bar Styling */
+        /* REVISED: User Input Bar Styling for seamless look */
         [data-testid="stChatInput"] {
-            background-color: #2D3748 !important; /* Bar background matches textarea background */
-            border-top: 1px solid #4A5568 !important; /* Bar top border matches textarea border */
-            padding: 0.75rem 1rem !important; /* Padding for the bar */
+            background-color: #2D3748 !important; /* Bar background color */
+            border-top: 1px solid #4A5568 !important; /* Bar top border color */
+            padding: 0.5rem 0.75rem !important; /* Adjust padding for the bar itself */
             position: sticky; bottom: 0;
+            display: flex; /* Use flex to align textarea and button */
+            align-items: center; /* Vertically center items in the bar */
         }
         html[data-theme="light"] [data-testid="stChatInput"] {
-            background-color: #FFFFFF !important; /* Light theme bar background */
-            border-top-color: #CBD5E0 !important; /* Light theme bar top border */
+            background-color: #F0F2F6 !important; /* Light theme bar background */
+            border-top-color: #D1D7E0 !important; /* Light theme bar top border */
         }
 
         [data-testid="stChatInput"] textarea {
-            border-radius: 8px !important;
-            border: 1px solid #4A5568 !important; /* Textarea border */
-            background-color: #2D3748 !important; /* Textarea background (should match stChatInput) */
-            color: #E2E8F0 !important;
-            padding: 10px 14px !important; /* Padding inside textarea */
+            flex-grow: 1; /* Allow textarea to take available space */
+            background-color: transparent !important; /* Textarea transparent to show bar background */
+            border: none !important; /* No border for textarea */
+            color: #E2E8F0 !important; /* Text color */
+            padding: 10px 12px !important; /* Padding inside textarea for text */
             line-height: 1.5 !important;
-            box-shadow: none !important; /* Remove any default shadow */
-            margin: 0 !important; /* Ensure no margin creating gaps */
+            box-shadow: none !important;
+            margin: 0 !important;
+            border-radius: 6px !important; /* Optional: slightly round corners if desired, but might not be visible if truly seamless */
+            outline: none !important; /* Remove focus outline if it interferes with seamless look */
         }
         html[data-theme="light"] [data-testid="stChatInput"] textarea {
-            border-color: #CBD5E0 !important;
-            background-color: #FFFFFF !important; /* Textarea background (should match stChatInput light) */
-            color: #2D3748 !important;
+            color: #2D3748 !important; /* Light theme text color */
         }
+        /* Textarea focus styling - can be subtle if a fully seamless look is desired */
         [data-testid="stChatInput"] textarea:focus {
-            border-color: var(--primary-color) !important;
-            box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 30%, transparent) !important;
+             /* No specific border or shadow on focus to maintain seamlessness,
+                or a very subtle indication if preferred. For now, keeping it minimal. */
+             /* E.g., box-shadow: 0 0 0 1px var(--primary-color) !important; */
+        }
+
+        /* Ensure the button next to textarea is styled appropriately */
+        [data-testid="stChatInput"] button {
+            margin-left: 0.5rem; /* Space between textarea and button */
         }
         [data-testid="stChatInput"] button svg { fill: #A0AEC0; }
         [data-testid="stChatInput"] button:hover svg { fill: var(--primary-color); }
+
 
         [data-testid="stChatMessage"] {
             border-radius: 10px; padding: 10px 16px; margin-bottom: 8px;
