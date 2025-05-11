@@ -311,7 +311,6 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         elif k in MODEL_MAP: # Should always be true if k is in allowed from MODEL_MAP keys
              system_lines.append(f"- {k}: (Model {MODEL_MAP[k]})")
 
-    # MODIFIED: Instructions to prefer model F
     instruction_lines = [
         "Based on the user's query, choose the most suitable model letter."
     ]
@@ -329,7 +328,6 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         )
     instruction_lines.append("Respond with ONLY the single capital letter. No extra text.")
     system_lines.extend(instruction_lines)
-    # END MODIFICATION
 
     router_messages = [
         {"role": "system", "content": "\n".join(system_lines)},
@@ -364,34 +362,29 @@ def get_credits():
     """Returns (total, used, remaining) or (None, None, None) on failure."""
     active_api_key = st.session_state.get("openrouter_api_key")
     if not is_api_key_valid(active_api_key):
-        # Do not set api_key_auth_failed here if only syntactically invalid,
-        # as it might be None intentionally before setup.
-        # api_post and the main setup logic handle this.
         logging.warning("get_credits: API Key is not syntactically valid or not set.")
         return None, None, None
     try:
         r = requests.get(
             f"{OPENROUTER_API_BASE}/credits",
             headers={"Authorization": f"Bearer {active_api_key}"},
-            timeout=10 # Reasonable timeout for credits check
+            timeout=10 
         )
-        r.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        r.raise_for_status()
         d = r.json()["data"]
-        # SUCCESS!
-        st.session_state.api_key_auth_failed = False # Explicitly clear on success
+        st.session_state.api_key_auth_failed = False 
         return d["total_credits"], d["total_usage"], d["total_credits"] - d["total_usage"]
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code
         err_text = e.response.text
         if status_code == 401:
-            st.session_state.api_key_auth_failed = True # <<< SET FLAG ON 401
+            st.session_state.api_key_auth_failed = True 
             logging.warning(f"Could not fetch /credits: HTTP {status_code} Unauthorized. {err_text}")
         else:
              logging.warning(f"Could not fetch /credits: HTTP {status_code}. {err_text}")
         return None, None, None
-    except (requests.exceptions.RequestException, json.JSONDecodeError, KeyError) as e: # Broader request/parsing errors
+    except (requests.exceptions.RequestException, json.JSONDecodeError, KeyError) as e: 
         logging.warning(f"Could not fetch /credits due to network/parsing error: {e}")
-        # Potentially a network issue, not necessarily auth_failed unless it was a 401 captured above.
         return None, None, None
 
 # ------------------------- UI Styling --------------------------
@@ -404,26 +397,26 @@ def load_custom_css():
         }
         /* Sidebar Styling */
         [data-testid="stSidebar"] {
-            background-color: var(--secondary-background-color); /* Adapts to theme */
+            background-color: var(--secondary-background-color); 
             padding: 1.5rem 1rem;
         }
         /* Sidebar Image (Logo) */
         [data-testid="stSidebar"] .stImage { margin-right: 12px; }
         [data-testid="stSidebar"] .stImage > img {
             border-radius: 50%;
-            box-shadow: 0 2px 6px var(--shadow); /* Theme-aware shadow */
+            box-shadow: 0 2px 6px var(--shadow); 
             width: 50px !important; height: 50px !important;
         }
         /* Sidebar Title */
-        [data-testid="stSidebar"] h1 { /* Targets st.title in sidebar */
-            font-size: 1.6rem !important; color: var(--primary); /* Use Streamlit's primary color */
-            font-weight: 600; margin-bottom: 0; /* Adjust if st.columns adds too much space */
-            padding-top: 0.3rem; /* Align better with image in columns */
+        [data-testid="stSidebar"] h1 { 
+            font-size: 1.6rem !important; color: var(--primary); 
+            font-weight: 600; margin-bottom: 0; 
+            padding-top: 0.3rem; 
         }
         /* Sidebar Subheaders */
-        [data-testid="stSidebar"] h3 { /* Targets st.subheader */
+        [data-testid="stSidebar"] h3 { 
             font-size: 0.9rem !important; text-transform: uppercase; font-weight: 600;
-            color: var(--text-color-secondary); /* Adapts to theme, more subtle */
+            color: var(--text-color-secondary); 
             margin-top: 1.5rem; margin-bottom: 0.75rem;
         }
         /* Button Styling (General for Sidebar - for session list) */
@@ -448,7 +441,9 @@ def load_custom_css():
         [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:hover {
              filter: brightness(90%); border-color: var(--primary);
         }
-        /* Custom Token Jar Styling */
+        
+        /* OLD Token Jar Styling - Kept for reference if needed, but replaced */
+        /*
         .token-jar-container {
             width: 100%; max-width: 55px; margin: 0 auto 0.5rem auto;
             text-align: center; font-family: inherit;
@@ -473,24 +468,92 @@ def load_custom_css():
             display: block; margin-top: 2px; font-size: 11px; font-weight: 600;
              color: var(--text-color); opacity: 0.9; line-height: 1;
         }
-        /* Expander Styling */
+        */
+
+        /* NEW Compact Quota Bar Styling (within Expander) */
+        .compact-quota-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            font-family: inherit;
+            padding: 0px 2px; /* Minimal horizontal padding for content inside column */
+        }
+        .cq-info { /* Emoji and Key */
+            font-size: 0.75em; /* Smaller text for compactness */
+            margin-bottom: 4px; 
+            line-height: 1.1;
+            white-space: nowrap; /* Prevent emoji and key from wrapping */
+            color: var(--text-color); /* Ensure visibility against sidebar background */
+        }
+        .cq-bar-track {
+            width: 100%; /* Bar track takes full width of its column cell */
+            height: 10px; /* Slimmer but visible bar height */
+            background-color: var(--secondary-background-color); /* Or a slightly darker shade like color-mix(in srgb, var(--text-color) 5%, transparent) */
+            border: 1px solid var(--border-color);
+            border-radius: 5px; /* Rounded track */
+            overflow: hidden; /* Clip the fill div */
+            margin-bottom: 4px;
+            box-shadow: inset 0 1px 1px var(--shadow-sm, rgba(0,0,0,0.03)); /* Subtle inner shadow */
+        }
+        .cq-bar-fill {
+            height: 100%;
+            border-radius: 4px; /* Fill slightly less rounded or match track */
+            transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out; /* Smooth transitions */
+        }
+        .cq-value { /* Remaining count */
+            font-size: 0.75em; /* Smaller text */
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        /* Styling the Expander title to look more like a subheader */
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary {
+            padding-top: 0.2rem !important; /* Adjust default summary padding */
+            padding-bottom: 0.2rem !important;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary p { /* Target the <p> tag where Streamlit puts the label */
+            font-size: 0.9rem !important; 
+            text-transform: uppercase;
+            font-weight: 600 !important; 
+            color: var(--text-color-secondary) !important; /* Match st.subheader style */
+            margin-bottom: 0 !important; /* Remove default paragraph margin */
+        }
+
+        /* Reduce padding inside the quota expander's content area for compactness */
+        [data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] {
+            padding-top: 0.6rem !important; /* Space between title and content */
+            padding-bottom: 0.2rem !important;
+            padding-left: 0.1rem !important; /* Minimal side padding to maximize space for columns */
+            padding-right: 0.1rem !important;
+        }
+
+        /* Reduce gap between columns if st.columns adds too much by default */
+        [data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] div[data-testid="stHorizontalBlock"] {
+            gap: 0.25rem !important; /* Tighter gap between quota items */
+        }
+
+
+        /* Expander Styling (General) */
        .stExpander {
             border: 1px solid var(--border-color); border-radius: 8px;
-            margin-bottom: 1rem; background-color: var(--background-color-primary); /* Changed for better contrast */
+            margin-bottom: 1rem; background-color: var(--background-color-primary);
         }
-       .stExpander header {
+       .stExpander header { /* This might conflict with the summary p styling above, ensure specificity or remove if redundant */
             font-weight: 600; font-size: 0.95rem; padding: 0.6rem 1rem !important;
             background-color: var(--secondary-background-color);
             border-bottom: 1px solid var(--border-color);
             border-top-left-radius: 7px; border-top-right-radius: 7px; color: var(--text-color);
         }
-       .stExpander div[data-testid="stExpanderDetails"] {
-             padding: 0.75rem 1rem; background-color: var(--background-color-primary); /* Changed to match expander base */
+       .stExpander div[data-testid="stExpanderDetails"] { /* Also potentially conflicting, ensure one source of truth for padding */
+             padding: 0.75rem 1rem; background-color: var(--background-color-primary); 
         }
+
         /* Chat Message Styling */
         [data-testid="stChatMessage"] {
             border-radius: 12px; padding: 14px 20px; margin-bottom: 12px;
-            box-shadow: 0 2px 5px var(--shadow); border: 1px solid transparent; /* Adjusted from var(--border-color) */
+            box-shadow: 0 2px 5px var(--shadow); border: 1px solid transparent;
         }
         html[data-theme="light"] [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
             background-color: #E3F2FD; border-left: 3px solid #1E88E5; color: #0D47A1;
@@ -521,39 +584,30 @@ def load_custom_css():
 
 
 # ----------------- API Key State Initialization -------------------
-# Load key from config into state if it's not already in state
 if "openrouter_api_key" not in st.session_state:
     app_conf = _load_app_config()
     st.session_state.openrouter_api_key = app_conf.get("openrouter_api_key", None)
 
-# Ensure auth failed flag exists
 if "api_key_auth_failed" not in st.session_state:
-    st.session_state.api_key_auth_failed = False # Default to False
+    st.session_state.api_key_auth_failed = False 
 
-# Determine if app should be in API key setup mode
-# This check runs ONCE per rerun.
 api_key_is_syntactically_valid = is_api_key_valid(st.session_state.get("openrouter_api_key"))
-# App requires setup if key is syntactically invalid OR auth has previously failed with current key
 app_requires_api_key_setup = not api_key_is_syntactically_valid or st.session_state.api_key_auth_failed
 
 
 # -------------------- Main Application Rendering -------------------
 
 if app_requires_api_key_setup:
-    # --- RENDER API KEY SETUP PAGE ---
     st.set_page_config(page_title="OpenRouter API Key Setup", layout="centered")
-    load_custom_css() # Load CSS for the setup page as well
+    load_custom_css() 
 
     st.title("🔒 OpenRouter API Key Required")
     st.markdown("---")
 
-    # Specific error for auth failure
     if st.session_state.api_key_auth_failed:
          st.error("API Key Authentication Failed. The key may be incorrect, revoked, disabled, or lack credits. Please verify your key on OpenRouter.ai and re-enter.")
-    # Specific error for syntactically invalid key (but not None, which means it was entered before)
     elif not api_key_is_syntactically_valid and st.session_state.get("openrouter_api_key") is not None:
         st.error("The previously configured API Key has an invalid format. It must start with `sk-or-`.")
-    # General info if key is simply None (first run or cleared)
     else:
         st.info("Please configure your OpenRouter API Key to use the application.")
 
@@ -564,35 +618,33 @@ if app_requires_api_key_setup:
     
     new_key_input_val = st.text_input(
         "Enter OpenRouter API Key", type="password", key="api_key_setup_input",
-        value="", # Always start blank on setup page for security and clarity
+        value="", 
         placeholder="sk-or-..."
     )
 
     if st.button("Save and Validate API Key", key="save_api_key_setup_button", use_container_width=True, type="primary"):
         if is_api_key_valid(new_key_input_val):
-            st.session_state.openrouter_api_key = new_key_input_val # Update state with the key to be tested
-            _save_app_config(new_key_input_val)                   # Save to config file
+            st.session_state.openrouter_api_key = new_key_input_val 
+            _save_app_config(new_key_input_val)                   
 
-            st.session_state.api_key_auth_failed = False # Reset flag before attempting validation with new key
+            st.session_state.api_key_auth_failed = False 
 
             with st.spinner("Validating API Key..."):
-                fetched_credits_data = get_credits() # This will set api_key_auth_failed on 401
+                fetched_credits_data = get_credits() 
 
-            if st.session_state.api_key_auth_failed: # Check flag set by get_credits
-                 # Error will be shown on the *next* rerun due to app_requires_api_key_setup logic
+            if st.session_state.api_key_auth_failed: 
                  st.error("Authentication failed with the provided API Key. Please check the key and try again.")
-                 time.sleep(0.5) # Brief pause to allow user to see message before rerun
+                 time.sleep(0.5) 
                  st.rerun()
-            elif fetched_credits_data == (None, None, None): # Other error during get_credits
+            elif fetched_credits_data == (None, None, None): 
                 st.error("Could not validate API Key. There might be a network issue or an unexpected problem with the API provider. Please try again.")
-                # Do not necessarily rerun here; allow user to try again.
-            else: # Success
+            else: 
                 st.success("API Key saved and validated! Initializing application...")
                 if "credits" not in st.session_state: st.session_state.credits = {}
                 st.session_state.credits["total"], st.session_state.credits["used"], st.session_state.credits["remaining"] = fetched_credits_data
                 st.session_state.credits_ts = time.time()
-                time.sleep(1.0) # Pause for user to see success message
-                st.rerun() # Proceed to full app
+                time.sleep(1.0) 
+                st.rerun() 
         elif not new_key_input_val:
             st.warning("API Key field cannot be empty.")
         else:
@@ -602,7 +654,6 @@ if app_requires_api_key_setup:
     st.caption("Your API key is stored locally in `app_config.json` and used only to communicate with the OpenRouter API.")
 
 else:
-    # --- RENDER FULL APPLICATION ---
     st.set_page_config(
         page_title="OpenRouter Chat",
         layout="wide",
@@ -613,65 +664,52 @@ else:
     if "settings_panel_open" not in st.session_state:
         st.session_state.settings_panel_open = False
 
-    # --- SID Management ---
-    needs_save_session = False # Renamed for clarity
+    needs_save_session = False 
     if "sid" not in st.session_state:
         st.session_state.sid = _new_sid()
         needs_save_session = True
     elif st.session_state.sid not in sessions:
         logging.warning(f"Session ID {st.session_state.sid} from state not found in loaded sessions. Creating a new chat.")
         st.session_state.sid = _new_sid()
-        needs_save_session = True # Create new session, so save
+        needs_save_session = True 
         
     if _delete_unused_blank_sessions(keep_sid=st.session_state.sid):
        needs_save_session = True
        
     if needs_save_session:
        _save(SESS_FILE, sessions)
-       # Rerun might be too disruptive here if only blank sessions were deleted without changing current SID
-       # Only rerun if SID actually changed or was newly created.
-       # The _new_sid call already implies a change, so this is likely fine.
        st.rerun()
        
-    # --- Credits Initialization / Refresh ---
-    if "credits" not in st.session_state: # Initialise if completely missing
-         st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0} # Default structure
+    if "credits" not in st.session_state: 
+         st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0} 
          st.session_state.credits_ts = 0
 
-    # Fetch credits if they are stale (e.g > 1 hr old) OR if they are default zeros (might indicate previous failure)
     credits_are_stale = time.time() - st.session_state.get("credits_ts", 0) > 3600
     credits_are_default = st.session_state.credits.get("total") == 0.0 and \
                           st.session_state.credits.get("used") == 0.0 and \
                           st.session_state.credits.get("remaining") == 0.0 and \
-                          st.session_state.credits_ts != 0 # Avoid if truly first run with 0 ts
+                          st.session_state.credits_ts != 0 
 
     if credits_are_stale or credits_are_default:
         logging.info("Refreshing credits (stale or default values).")
-        credits_data = get_credits() # This will set api_key_auth_failed on 401
+        credits_data = get_credits() 
         
         if st.session_state.get("api_key_auth_failed"):
             st.error("API Key authentication failed. Please update your API Key in ⚙️ Settings.")
-            # No st.stop() here, allow UI to render so settings can be accessed.
-            # The app_requires_api_key_setup will be True on next rerun and force setup page.
-            # For now, we might show old credit data or zeros.
-            st.rerun() # Force re-evaluation, which will lead to setup page
-            st.stop() # Stop current run after triggering rerun
+            st.rerun() 
+            st.stop() 
         
         if credits_data != (None, None, None):
             st.session_state.credits["total"], st.session_state.credits["used"], st.session_state.credits["remaining"] = credits_data
             st.session_state.credits_ts = time.time()
         else:
-            # If fetching fails but not due to 401, keep old data or log warning.
-            # It's already logged in get_credits. Here, we ensure credits_ts is updated to avoid rapid refetching.
             st.session_state.credits_ts = time.time() 
-            # Don't overwrite existing valid credit data with zeros if fetch fails for non-auth reason
             if not all(isinstance(st.session_state.credits.get(k), (int,float)) for k in ["total", "used", "remaining"]):
-                 st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0} # Fallback to zeros if current data is invalid
+                 st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0} 
 
 
     # ------------------------- Sidebar -----------------------------
     with st.sidebar:
-        # --- Settings Panel (for changing key) ---
         if st.button("⚙️ Settings", key="toggle_settings_button", use_container_width=True):
             st.session_state.settings_panel_open = not st.session_state.get("settings_panel_open", False)
 
@@ -696,27 +734,26 @@ else:
                 if is_api_key_valid(new_key_input_sidebar):
                     st.session_state.openrouter_api_key = new_key_input_sidebar
                     _save_app_config(new_key_input_sidebar)
-                    st.session_state.api_key_auth_failed = False # Reset flag for the new key
+                    st.session_state.api_key_auth_failed = False 
 
                     with st.spinner("Validating new API key..."):
-                        credits_data = get_credits() # Uses new key, sets auth_failed on 401
+                        credits_data = get_credits() 
                     
                     if st.session_state.api_key_auth_failed:
                         st.error("New API Key failed authentication. Further actions may require re-setup.")
-                        # App will go to setup page on next rerun if auth_failed is true
                     elif credits_data == (None,None,None):
                         st.warning("Could not validate the new API key (network or other API issue). Key is saved, but functionality may be affected.")
-                    else: # Success
+                    else: 
                         st.success("New API Key saved and validated!")
                         st.session_state.credits["total"],st.session_state.credits["used"],st.session_state.credits["remaining"] = credits_data
                         st.session_state.credits_ts = time.time()
                     
-                    st.session_state.settings_panel_open = False # Close panel
-                    time.sleep(0.8) # UI Pause
-                    st.rerun() # Rerun to update display, or to go to setup page if key failed
-                elif not new_key_input_sidebar: # Empty input
+                    st.session_state.settings_panel_open = False 
+                    time.sleep(0.8) 
+                    st.rerun() 
+                elif not new_key_input_sidebar: 
                     st.warning("API Key field is empty. No changes made.")
-                else: # Syntactically invalid
+                else: 
                     st.error("Invalid API key format. It must start with 'sk-or-'.")
             
             if st.button("Close Settings", key="close_settings_panel_button_sidebar"):
@@ -724,37 +761,64 @@ else:
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
             st.divider()
-        # --- End Settings Panel ---
 
         logo_title_cols = st.columns([1, 4], gap="small")
         with logo_title_cols[0]: st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50)
         with logo_title_cols[1]: st.title("OpenRouter Chat")
         st.divider()
 
-        st.subheader("Daily Jars (Msgs Left)")
-        active_model_keys = sorted(MODEL_MAP.keys())
-        cols = st.columns(len(active_model_keys))
-        for i, m_key in enumerate(active_model_keys):
-            left, _, _ = remaining(m_key); lim, _, _  = PLAN[m_key]
-            pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0) # Avoid div by zero
-            fill = int(pct * 100)
+        # New Quota Display
+        with st.expander("⚡ DAILY MODEL QUOTAS", expanded=True): 
+            active_model_keys = sorted(MODEL_MAP.keys())
             
-            # CORRECTED SYNTAX FOR IF/ELIF/ELSE BLOCK:
-            if pct > 0.5:
-                color = "#4caf50"
-            elif pct > 0.25:
-                color = "#ffc107"
+            if not active_model_keys:
+                st.caption("No models configured for quota tracking.")
             else:
-                color = "#f44336"
-            
-            # Ensure EMOJI[m_key] exists or provide a fallback
-            emoji_char = EMOJI.get(m_key, "❔")
-            cols[i].markdown(f"""
-                <div class="token-jar-container">
-                  <div class="token-jar"><div class="token-jar-fill" style="height:{fill}%; background-color:{color};"></div>
-                    <div class="token-jar-emoji">{emoji_char}</div><div class="token-jar-key">{m_key}</div>
-                  </div><span class="token-jar-remaining">{'∞' if lim > 900_000 else left}</span></div>""", unsafe_allow_html=True)
-        st.divider()
+                quota_cols = st.columns(len(active_model_keys)) 
+                
+                for i, m_key in enumerate(active_model_keys):
+                    with quota_cols[i]:
+                        left, _, _ = remaining(m_key)
+                        lim, _, _  = PLAN[m_key]
+                        
+                        is_unlimited = lim > 900_000 
+                        
+                        if is_unlimited:
+                            pct_float = 1.0
+                            fill_width_val = 100 
+                            left_display = "∞"
+                        elif lim > 0:
+                            pct_float = max(0.0, min(1.0, left / lim)) 
+                            fill_width_val = int(pct_float * 100)
+                            left_display = str(left)
+                        else: 
+                            pct_float = 0.0
+                            fill_width_val = 0
+                            left_display = "0" 
+
+                        if pct_float > 0.5: 
+                            bar_color = "#4caf50" 
+                        elif pct_float > 0.25: 
+                            bar_color = "#ffc107" 
+                        else: 
+                            bar_color = "#f44336" 
+                        
+                        if is_unlimited: 
+                            bar_color = "var(--primary)" 
+
+                        emoji_char = EMOJI.get(m_key, "❔") 
+                        
+                        st.markdown(f"""
+                            <div class="compact-quota-item">
+                                <div class="cq-info">{emoji_char} <b>{m_key}</b></div>
+                                <div class="cq-bar-track">
+                                    <div class="cq-bar-fill" style="width: {fill_width_val}%; background-color: {bar_color};"></div>
+                                </div>
+                                <div class="cq-value" style="color: {bar_color};">{left_display}</div>
+                            </div>
+                        """, unsafe_allow_html=True)
+        st.divider() 
+
 
         current_session_is_truly_blank = (st.session_state.sid in sessions and
                                           sessions[st.session_state.sid].get("title") == "New chat" and
@@ -762,27 +826,25 @@ else:
                                           
         if st.button("➕ New chat", key="new_chat_button_top", use_container_width=True, disabled=current_session_is_truly_blank):
             old_sid = st.session_state.sid
-            st.session_state.sid = _new_sid() # This creates the new session entry
-            _delete_unused_blank_sessions(keep_sid=st.session_state.sid) # Clean up old one if it was blank
-            _save(SESS_FILE, sessions) # Save changes
+            st.session_state.sid = _new_sid() 
+            _delete_unused_blank_sessions(keep_sid=st.session_state.sid) 
+            _save(SESS_FILE, sessions) 
             st.rerun()
         
         st.subheader("Chats")
-        # Ensure sessions is not empty and sids are valid before sorting
         valid_sids = [s for s in sessions.keys() if isinstance(s, str) and s.isdigit()]
         sorted_sids = sorted(valid_sids, key=lambda s: int(s), reverse=True)
         
         for sid_key in sorted_sids:
-            if sid_key not in sessions: continue # Should not happen if valid_sids is correct
+            if sid_key not in sessions: continue 
             title = sessions[sid_key].get("title", "Untitled")
             display_title = title[:25] + ("…" if len(title) > 25 else "")
             if st.session_state.sid == sid_key: display_title = f"🔹 {display_title}"
             if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True):
                 if st.session_state.sid != sid_key:
-                    # Before switching, ensure current blank chat (if any) is deleted if it's not the one we are switching to
                     _delete_unused_blank_sessions(keep_sid=sid_key)
                     st.session_state.sid = sid_key
-                    _save(SESS_FILE, sessions) # Save after potential deletion
+                    _save(SESS_FILE, sessions) 
                     st.rerun()
         st.divider()
 
@@ -790,7 +852,6 @@ else:
         st.caption(f"Router: {ROUTER_MODEL_ID}")
         with st.expander("Letters → Models", expanded=False):
             for k_model in sorted(MODEL_MAP.keys()):
-                # Ensure all keys exist before formatting
                 desc = MODEL_DESCRIPTIONS.get(k_model, MODEL_MAP.get(k_model, "N/A"))
                 max_tok = MAX_TOKENS.get(k_model, 0)
                 st.markdown(f"**{k_model}**: {desc} (max_out={max_tok:,})")
@@ -798,23 +859,22 @@ else:
 
         with st.expander("Account stats (credits)", expanded=False):
             if st.button("Refresh Credits", key="refresh_credits_button"):
-                 with st.spinner("Refreshing credits..."): # Matched spinner message
-                    credits_data = get_credits() # Sets auth_failed on 401
-                 if not st.session_state.get("api_key_auth_failed"): # Check flag after get_credits
+                 with st.spinner("Refreshing credits..."): 
+                    credits_data = get_credits() 
+                 if not st.session_state.get("api_key_auth_failed"): 
                     if credits_data != (None,None,None):
                         st.session_state.credits["total"],st.session_state.credits["used"],st.session_state.credits["remaining"] = credits_data
                         st.session_state.credits_ts = time.time()
                         st.success("Credits refreshed!")
                     else:
                         st.warning("Could not refresh credits (network or API issue).")
-                 # Rerun will happen, if auth failed, it will go to setup. Otherwise, shows new credits.
                  st.rerun() 
             
             tot = st.session_state.credits.get("total")
             used = st.session_state.credits.get("used")
             rem = st.session_state.credits.get("remaining")
 
-            if tot is None or used is None or rem is None : # Check if credits data is valid
+            if tot is None or used is None or rem is None : 
                  st.warning("Could not fetch/display credits. Check network or API key (in Settings).")
             else:
                 st.markdown(f"**Remaining:** ${float(rem):.2f} cr")
@@ -826,7 +886,6 @@ else:
 
 
     # ------------------------- Main Chat Panel ---------------------
-    # Ensure current_sid exists in sessions, otherwise reset (edge case)
     if st.session_state.sid not in sessions:
         logging.error(f"Current session ID {st.session_state.sid} missing from sessions. Resetting to new chat.")
         st.session_state.sid = _new_sid()
@@ -838,8 +897,8 @@ else:
     chat_history = sessions[current_sid]["messages"]
     
     for msg in chat_history:
-        role = msg.get("role", "assistant") # Default role if missing
-        avatar = "👤" if role == "user" else None # Default Streamlit avatar for assistant if not specified
+        role = msg.get("role", "assistant") 
+        avatar = "👤" if role == "user" else None 
 
         if role == "assistant":
             m_key = msg.get("model")
@@ -847,36 +906,32 @@ else:
                 avatar = FALLBACK_MODEL_EMOJI
             elif m_key in EMOJI:
                 avatar = EMOJI[m_key]
-            else: # Default assistant avatar if model key unknown or not in EMOJI map
+            else: 
                 avatar = "🤖" 
         
         with st.chat_message(role, avatar=avatar): 
-             st.markdown(msg.get("content", "*empty message*")) # Handle empty content
+             st.markdown(msg.get("content", "*empty message*")) 
 
-    # Chat Input
     if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
         chat_history.append({"role":"user","content":prompt})
         with st.chat_message("user", avatar="👤"): st.markdown(prompt)
 
-        # Re-check API key status before making calls
         if not is_api_key_valid(st.session_state.get("openrouter_api_key")) or st.session_state.get("api_key_auth_failed"):
             st.error("API Key is not configured or has failed. Please set it up in ⚙️ Settings.")
             st.rerun()
             st.stop()
 
-        allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0] # Daily quota check
+        allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0] 
         use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (
-            False, None, None, None, "🤖" # Default avatar
+            False, None, None, None, "🤖" 
         )
         
-        # --- Decide model (Quota -> Router -> Fallback) ---
         if not allowed_standard_models:
             logging.info(f"Using fallback (all quotas used): {FALLBACK_MODEL_ID}")
             st.info(f"{FALLBACK_MODEL_EMOJI} Daily quotas for standard models exhausted. Using free fallback.")
             use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
         else:
             routed_key = route_choice(prompt, allowed_standard_models)
-            # Check if routing itself caused an Auth failure (e.g., router model key invalid)
             if st.session_state.get("api_key_auth_failed"):
                  st.error("API Authentication failed during model routing. Please check your API Key in Settings.")
                  st.rerun() 
@@ -886,19 +941,18 @@ else:
                 logging.warning(f"Router chose '{routed_key}' (invalid or no quota). Using fallback {FALLBACK_MODEL_ID}.")
                 st.warning(f"{FALLBACK_MODEL_EMOJI} Model routing issue or chosen model '{routed_key}' has no quota. Using free fallback.")
                 use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
-            else: # Route OK
+            else: 
                 chosen_model_key = routed_key
                 model_id_to_use = MODEL_MAP[chosen_model_key]
                 max_tokens_api = MAX_TOKENS[chosen_model_key]
                 avatar_resp = EMOJI.get(chosen_model_key, "🤖")
         
-        # --- Stream response ---
         with st.chat_message("assistant", avatar=avatar_resp):
             response_placeholder, full_response = st.empty(), ""
             api_call_ok = True
             
             for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
-                if st.session_state.get("api_key_auth_failed"): # streamed sets this on 401
+                if st.session_state.get("api_key_auth_failed"): 
                     full_response = "❗ **API Authentication Error**: Your API Key failed. Please update it in ⚙️ Settings."
                     api_call_ok = False; break
                 if err_msg:
@@ -908,23 +962,17 @@ else:
                    full_response += chunk
                    response_placeholder.markdown(full_response + "▌")
                    
-            response_placeholder.markdown(full_response) # Final content
+            response_placeholder.markdown(full_response) 
 
-        # --- Save state ---
-        # Add assistant message to history even if API call failed, to show error
-        chat_history.append({"role":"assistant","content":full_response,"model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY}) # Tag with actual model used or fallback on error
+        chat_history.append({"role":"assistant","content":full_response,"model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY}) 
         
         if api_call_ok:
-            if not use_fallback: # Only record use for non-fallback standard models
-               record_use(chosen_model_key) # This saves quota file
-            if sessions[current_sid]["title"] == "New chat" and prompt: # Auto-title if new and prompt exists
+            if not use_fallback: 
+               record_use(chosen_model_key) 
+            if sessions[current_sid]["title"] == "New chat" and prompt: 
                sessions[current_sid]["title"] = _autoname(prompt)
-               _delete_unused_blank_sessions(keep_sid=current_sid) # Clean up other new chats if any
+               _delete_unused_blank_sessions(keep_sid=current_sid) 
         
-        _save(SESS_FILE, sessions) # Save session file
+        _save(SESS_FILE, sessions) 
         
-        # Rerun to update UI (e.g. quotas, title, or go to setup if api_key_auth_failed)
         st.rerun()
-        
-# NOTE: Removed the __main__ self-relaunch block 
-# as it is not needed/desired for Streamlit Cloud deployment.
