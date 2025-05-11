@@ -1,126 +1,3 @@
-# ────────────────────────── Main Chat Panel ─────────────────────
-
-current_sid = st.session_state.sid 
-if current_sid not in sessions: 
-    st.error("Selected chat session not found. Creating a new one.")
-    current_sid = _new_sid()
-    st.session_state.sid = current_sid
-    st.rerun() 
-
-chat_history = sessions[current_sid]["messages"] 
-
-# Display existing messages
-for msg_idx, msg in enumerate(chat_history):
-    role = msg["role"]
-    avatar_for_display = "👤" # Default for user
-    if role == "assistant":
-        model_key_in_message = msg.get("model")
-        if model_key_in_message == FALLBACK_MODEL_KEY:
-            avatar_for_display = FALLBACK_MODEL_EMOJI
-        elif model_key_in_message in EMOJI:
-            avatar_for_display = EMOJI[model_key_in_message]
-        else: # Handles old models (like 'E') or any other unknown/nil model key for past messages
-              # Default to F's emoji if F exists and is in EMOJI, else a generic bot.
-            avatar_for_display = EMOJI.get("F", "🤖") 
-            
-    with st.chat_message(role, avatar=avatar_for_display):
-        st.markdown(msg["content"])                                       
-
-# Input box
-if prompt := st.chat_input("Ask anything…"):
-    chat_history.append({"role":"user","content":prompt})
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(prompt)
-
-    # Determine which model to use
-    allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
-    
-    use_fallback_model = False
-    chosen_model_key_for_api = None # This will be 'A', 'B', '_FALLBACK_', etc.
-    model_id_to_use_for_api = None
-    max_tokens_for_api = None
-    avatar_for_response = "🤖" # Default assistant avatar
-
-    if not allowed_standard_models:
-        st.info(f"{FALLBACK_MODEL_EMOJI} All standard model daily quotas exhausted. Using free fallback model.")
-        chosen_model_key_for_api = FALLBACK_MODEL_KEY
-        model_id_to_use_for_api = FALLBACK_MODEL_ID
-        max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
-        avatar_for_response = FALLBACK_MODEL_EMOJI
-        use_fallback_model = True
-        logging.info(f"All standard quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
-    else:
-        # MODIFICATION START: Check if only one standard model is available
-        if len(allowed_standard_models) == 1:
-            chosen_model_key_for_api = allowed_standard_models[0]
-            logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
-        else: # Multiple standard models available, or more than one. Use router.
-            # The route_choice function itself handles the case where len(allowed_standard_models) might be 1 internally,
-            # but this external check ensures we explicitly state when we are skipping the router logic.
-            routed_key = route_choice(prompt, allowed_standard_models)
-            logging.info(f"Router selected model: '{routed_key}'.") # Log router's choice
-            chosen_model_key_for_api = routed_key
-        # MODIFICATION END
-
-        # Common setup for the chosen standard model (whether selected directly or by router)
-        model_id_to_use_for_api = MODEL_MAP[chosen_model_key_for_api]
-        max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
-        avatar_for_response = EMOJI[chosen_model_key_for_api]
-        # use_fallback_model remains False (initialized as False and not changed in this block)
-
-    with st.chat_message("assistant", avatar=avatar_for_response):
-        response_placeholder, full_response_content = st.empty(), ""
-        api_call_ok = True
-        for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
-            if error_message:
-                full_response_content = f"❗ **API Error**: {error_message}"
-                response_placeholder.error(full_response_content)
-                api_call_ok = False
-                break
-            if chunk:
-                full_response_content += chunk
-                response_placeholder.markdown(full_response_content + "▌")
-        response_placeholder.markdown(full_response_content)
-
-    # Append assistant message, storing the actual model key used (standard or fallback)
-    chat_history.append({"role":"assistant","content":full_response_content,"model": chosen_model_key_for_api})
-
-    if api_call_ok: 
-        if not use_fallback_model: # Only record use for standard, non-fallback models
-            record_use(chosen_model_key_for_api)
-        if sessions[current_sid]["title"] == "New chat":
-            sessions[current_sid]["title"] = _autoname(prompt)
-    
-    _save(SESS_FILE, sessions) 
-    st.rerun()
-
-
-I've inserted the logic to check len(allowed_standard_models).
-
-If it's 0, the fallback model is used (existing logic).
-
-If it's 1, that single available standard model is chosen directly, and a log message indicates this.
-
-If it's greater than 1, route_choice is called as before.
-
-The rest of the logic for setting model_id_to_use_for_api, max_tokens_for_api, and avatar_for_response correctly follows from the chosen_model_key_for_api determined by this new conditional block.
-
-The route_choice function itself has a line:
-
-if len(allowed) == 1:
-        logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
-        return allowed[0]
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution.
-Python
-IGNORE_WHEN_COPYING_END
-
-With the new logic in the main chat panel, route_choice will no longer be called if len(allowed_standard_models) is 1. So, this specific condition inside route_choice will not be hit in that scenario. The direct selection and its logging will happen in the main panel. This is fine and achieves the desired outcome of skipping the router call.
-
-Here's the full modified script:
-
 #!/usr/bin/env python3
 """
 OpenRouter Streamlit Chat — Full Edition
@@ -172,41 +49,27 @@ MAX_TOKENS = {
 }
 
 # Quota plan: (daily, weekly, monthly) messages
-# Using daily * 7 for weekly and daily * 30 for monthly as placeholders for A,B,C,D.
-# F keeps its high limits for weekly/monthly, effectively daily constrained.
 PLAN = {
-    "A": (10, 10 * 7, 10 * 30),    # 10 daily
-    "B": (5, 5 * 7, 5 * 30),       # 5 daily
-    "C": (1, 1 * 7, 1 * 30),       # 1 daily
-    "D": (4, 4 * 7, 4 * 30),       # 4 daily
-    # "E": (1, 10, 40), # REMOVED E
-    "F": (180, 500, 2000) # 180 daily, adjusted W/M slightly from original large F values
+    "A": (10, 10 * 7, 10 * 30),
+    "B": (5, 5 * 7, 5 * 30),
+    "C": (1, 1 * 7, 1 * 30),
+    "D": (4, 4 * 7, 4 * 30),
+    "F": (180, 500, 2000)
 }
 
-# Emojis for jars (does not include fallback model)
 EMOJI = {
-    "A": "🌟",
-    "B": "🔷",
-    "C": "🟥",
-    "D": "🟢",
-    # "E": "🟡", # REMOVED E
-    "F": "🌀"
+    "A": "🌟", "B": "🔷", "C": "🟥", "D": "🟢", "F": "🌀"
 }
 
-# Descriptions shown to the router (does not include fallback model)
 MODEL_DESCRIPTIONS = {
     "A": "🌟 (gemini-2.5-pro-preview) – top-quality, creative, expensive.",
     "B": "🔷 (o4-mini) – mid-stakes reasoning, cost-effective.",
     "C": "🟥 (chatgpt-4o-latest) – polished/empathetic, pricier.",
     "D": "🟢 (deepseek-r1) – cheap factual reasoning.",
-    # "E": "🟡 (grok-3-beta) – edgy style, second opinion.", # REMOVED E
     "F": "🌀 (gemini-2.5-flash-preview) – quick, free-tier, general purpose."
 }
 
-# Timezone for weekly/monthly resets
 TZ = ZoneInfo("Australia/Sydney")
-
-# Paths for persistence
 DATA_DIR   = Path(__file__).parent
 SESS_FILE  = DATA_DIR / "chat_sessions.json"
 QUOTA_FILE = DATA_DIR / "quotas.json"
@@ -231,17 +94,14 @@ def _ymonth():   return datetime.now(TZ).strftime("%Y-%m")
 # ───────────────────── Quota Management ────────────────────────
 
 def _reset(block: dict, key: str, stamp: str, zeros: dict):
-    # Ensure zeros dict only contains keys for currently active models
     active_zeros = {k: 0 for k in MODEL_MAP}
     if block.get(key) != stamp:
         block[key] = stamp
-        block[f"{key}_u"] = active_zeros.copy() # Use active_zeros
+        block[f"{key}_u"] = active_zeros.copy()
 
 def _load_quota():
     zeros = {k: 0 for k in MODEL_MAP}
     q = _load(QUOTA_FILE, {})
-
-    # Clean up old model keys from existing quota file if they exist
     for period_usage_key in ("d_u", "w_u", "m_u"):
         if period_usage_key in q:
             current_usage_dict = q[period_usage_key]
@@ -249,7 +109,6 @@ def _load_quota():
             for k_rem in keys_to_remove:
                 del current_usage_dict[k_rem]
                 logging.info(f"Removed old model key '{k_rem}' from quota usage '{period_usage_key}'.")
-
     _reset(q, "d", _today(), zeros)
     _reset(q, "w", _yweek(), zeros)
     _reset(q, "m", _ymonth(), zeros)
@@ -259,23 +118,21 @@ def _load_quota():
 quota = _load_quota()
 
 def remaining(key: str):
-    ud = quota.get("d_u", {}).get(key, 0) # Add .get for d_u, w_u, m_u for robustness
+    ud = quota.get("d_u", {}).get(key, 0)
     uw = quota.get("w_u", {}).get(key, 0)
     um = quota.get("m_u", {}).get(key, 0)
-    
-    if key not in PLAN: # Should not happen if key is from MODEL_MAP
+    if key not in PLAN:
         logging.error(f"Attempted to get remaining quota for unknown key: {key}")
         return 0, 0, 0
-        
     ld, lw, lm = PLAN[key]
     return ld - ud, lw - uw, lm - um
 
 def record_use(key: str):
-    if key not in MODEL_MAP: # Fallback model key will not be in MODEL_MAP, so this check is important
+    if key not in MODEL_MAP:
         logging.warning(f"Attempted to record usage for unknown or non-standard model key: {key}")
         return
     for blk_key in ("d_u", "w_u", "m_u"):
-        if blk_key not in quota: # Initialize if period usage dict doesn't exist
+        if blk_key not in quota:
             quota[blk_key] = {k: 0 for k in MODEL_MAP}
         quota[blk_key][key] = quota[blk_key].get(key, 0) + 1
     _save(QUOTA_FILE, quota)
@@ -283,12 +140,39 @@ def record_use(key: str):
 
 # ───────────────────── Session Management ───────────────────────
 
-sessions = _load(SESS_FILE, {})
+def _delete_unused_blank_sessions(keep_sid: str = None):
+    """
+    Deletes all sessions that are blank (title "New chat" and no messages),
+    except for the session with sid `keep_sid` if provided.
+    Modifies the global `sessions` object.
+    Returns True if any sessions were deleted.
+    """
+    sids_to_delete = []
+    for sid, data in sessions.items(): # Iterate over a copy if modifying dict during iteration
+        if sid == keep_sid:
+            continue
+        if data.get("title") == "New chat" and not data.get("messages"):
+            sids_to_delete.append(sid)
+
+    if sids_to_delete:
+        for sid_del in sids_to_delete:
+            logging.info(f"Auto-deleting blank session: {sid_del}")
+            del sessions[sid_del]
+        return True
+    return False
+
+sessions = _load(SESS_FILE, {}) # Initialize global sessions
 
 def _new_sid():
+    """
+    Clears ALL old blank/unused sessions, then creates a new session ID 
+    and adds a basic session structure to the global `sessions` dict.
+    """
+    _delete_unused_blank_sessions(keep_sid=None) # Clear ALL old blank sessions first
+
     sid = str(int(time.time() * 1000))
     sessions[sid] = {"title": "New chat", "messages": []}
-    _save(SESS_FILE, sessions)
+    # The caller of _new_sid is responsible for _save(SESS_FILE, sessions)
     return sid
 
 def _autoname(seed: str) -> str:
@@ -298,16 +182,13 @@ def _autoname(seed: str) -> str:
 
 
 # ─────────────────────────── Logging ────────────────────────────
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
     stream=sys.stdout
 )
 
-
 # ────────────────────────── API Calls ──────────────────────────
-
 def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -336,66 +217,51 @@ def streamed(model: str, messages: list, max_tokens_out: int):
             return
 
         for line in r.iter_lines():
-            if not line: 
-                continue
-            line_str = line.decode("utf-8") 
-            if line_str.startswith(": OPENROUTER PROCESSING"): 
-                logging.info(f"OpenRouter PING: {line_str.strip()}") 
+            if not line: continue
+            line_str = line.decode("utf-8")
+            if line_str.startswith(": OPENROUTER PROCESSING"):
+                logging.info(f"OpenRouter PING: {line_str.strip()}")
                 continue
             if not line_str.startswith("data: "):
                 logging.warning(f"Unexpected non-event-stream line: {line}")
                 continue
-
-            data = line_str[6:].strip() 
-            if data == "[DONE]":
-                break
+            data = line_str[6:].strip()
+            if data == "[DONE]": break
             try:
                 chunk = json.loads(data)
             except json.JSONDecodeError:
                 logging.error(f"Bad JSON chunk: {data}")
                 yield None, "Error decoding response chunk"
                 return
-
             if "error" in chunk:
                 msg = chunk["error"].get("message", "Unknown API error")
                 logging.error(f"API chunk error: {msg}")
                 yield None, msg
                 return
-
             delta = chunk["choices"][0]["delta"].get("content")
-            if delta is not None:
-                yield delta, None
-
+            if delta is not None: yield delta, None
 
 # ───────────────────────── Model Routing ───────────────────────
-
 def route_choice(user_msg: str, allowed: list[str]) -> str:
     if not allowed:
-        logging.warning("route_choice called with empty allowed list. Defaulting to 'F' (standard models).")
-        # This fallback within route_choice might be less relevant if pre-check for allowed list emptiness
-        # leads to the global fallback model, but kept for robustness if called directly.
+        logging.warning("route_choice called with empty allowed list. Defaulting to 'F'.")
         return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F")
-
-
-    if len(allowed) == 1: # This condition will likely not be met if calling logic is correct
+    if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
         return allowed[0]
-
     system_lines = [
         "You are an intelligent model-routing assistant.",
         "Select ONLY one letter from the following available models:",
     ]
-    for k in allowed: # Only list currently allowed models to the router
-        if k in MODEL_DESCRIPTIONS: # Check if key exists to prevent errors
+    for k in allowed:
+        if k in MODEL_DESCRIPTIONS:
             system_lines.append(f"- {k}: {MODEL_DESCRIPTIONS[k]}")
         else:
             logging.warning(f"Model key {k} found in 'allowed' but not in MODEL_DESCRIPTIONS.")
-
-    system_lines.append(
-        "Based on the user's query, choose the letter that best balances quality, speed, and cost-sensitivity."
-    )
-    system_lines.append("Respond with ONLY the single capital letter. No extra text.")
-
+    system_lines.extend([
+        "Based on the user's query, choose the letter that best balances quality, speed, and cost-sensitivity.",
+        "Respond with ONLY the single capital letter. No extra text."
+    ])
     router_messages = [
         {"role": "system", "content": "\n".join(system_lines)},
         {"role": "user",   "content": user_msg}
@@ -407,19 +273,14 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         text = r.json()["choices"][0]["message"]["content"].strip().upper()
         logging.info(f"Router raw response: {text}")
         for ch in text:
-            if ch in allowed: # Ensure router choice is valid among currently allowed
-                return ch
+            if ch in allowed: return ch
     except Exception as e:
         logging.error(f"Router call error: {e}")
-
-    # Smarter fallback: if F is allowed, prefer it. Otherwise, first in list.
     fallback_choice = "F" if "F" in allowed else allowed[0]
     logging.warning(f"Router fallback to model: {fallback_choice}")
     return fallback_choice
 
-
 # ───────────────────── Credits Endpoint ───────────────────────
-
 def get_credits():
     try:
         r = requests.get(
@@ -434,17 +295,32 @@ def get_credits():
         logging.warning(f"Could not fetch /credits: {e}")
         return None, None, None
 
-
 # ───────────────────────── Streamlit UI ────────────────────────
-
 st.set_page_config(
     page_title="OpenRouter Chat",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# Initial SID Management and Cleanup
+needs_save_and_rerun_on_startup = False
 if "sid" not in st.session_state:
-    st.session_state.sid = _new_sid()
+    st.session_state.sid = _new_sid() # _new_sid cleans, creates, adds to global 'sessions'
+    needs_save_and_rerun_on_startup = True
+elif st.session_state.sid not in sessions:
+    logging.warning(f"Session ID {st.session_state.sid} from state not found in loaded sessions. Creating a new chat.")
+    st.session_state.sid = _new_sid() # _new_sid cleans, creates, adds to global 'sessions'
+    needs_save_and_rerun_on_startup = True
+else:
+    # SID is valid and exists in sessions. Clean up OTHER blank sessions, keeping the current one.
+    if _delete_unused_blank_sessions(keep_sid=st.session_state.sid):
+        needs_save_and_rerun_on_startup = True
+
+if needs_save_and_rerun_on_startup:
+    _save(SESS_FILE, sessions)
+    st.rerun()
+
+# Initialize credits if not already in session state
 if "credits" not in st.session_state:
     st.session_state.credits = dict(zip(
         ("total", "used", "remaining"),
@@ -458,118 +334,73 @@ with st.sidebar:
     st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50)
     st.title("OpenRouter Chat")
 
-    # Token-Jar gauges pinned at the top
-    st.subheader("Daily Jars (Msgs Left)") # Updated subheader
-    cols = st.columns(len(MODEL_MAP)) # Number of columns now dynamic based on active models
-    
-    active_model_keys = sorted(MODEL_MAP.keys()) # Iterate only over active models
-
+    st.subheader("Daily Jars (Msgs Left)")
+    cols = st.columns(len(MODEL_MAP))
+    active_model_keys = sorted(MODEL_MAP.keys())
     for i, m_key in enumerate(active_model_keys):
         left, _, _ = remaining(m_key)
         lim, _, _  = PLAN[m_key]
         pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0)
         fill = int(pct * 100)
         color = "#4caf50" if pct > .5 else "#ff9800" if pct > .25 else "#f44336"
-        
         cols[i].markdown(f"""
             <div style="width:44px; margin:auto; text-align:center;">
-              <div style="
-                height:60px; 
-                border:1px solid #ccc; 
-                border-radius:7px;    
-                background:#f5f5f5; 
-                position:relative;
-                overflow:hidden; 
-                box-shadow: inset 0 1px 2px rgba(0,0,0,0.07), 
-                            0 1px 1px rgba(0,0,0,0.05); 
-              ">
-                <div style=" 
-                  position:absolute;
-                  bottom:0;
-                  width:100%;
-                  height:{fill}%;
-                  background:{color}; 
-                  box-shadow: inset 0 2px 2px rgba(255,255,255,0.3); 
-                  box-sizing: border-box;
-                "></div>
-                <div style=" 
-                  position:absolute;
-                  top:2px; 
-                  width:100%;
-                  font-size:18px; 
-                  line-height:1; 
-                ">{EMOJI[m_key]}</div>  
-                <div style=" 
-                  position:absolute;
-                  bottom:2px; 
-                  width:100%;
-                  font-size:11px; 
-                  font-weight:bold;
-                  color:#555; 
-                  line-height:1;
-                ">{m_key}</div>
-              </div>
-              <span style=" 
-                display:block; 
-                margin-top:4px;
-                font-size:11px;
-                font-weight:600; 
-                color:#333; 
-                line-height:1;
-              ">
-                {'∞' if lim > 900_000 else left}
-              </span>
+              <div style="height:60px; border:1px solid #ccc; border-radius:7px; background:#f5f5f5; position:relative; overflow:hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.07),0 1px 1px rgba(0,0,0,0.05);"><div style="position:absolute; bottom:0; width:100%; height:{fill}%; background:{color}; box-shadow: inset 0 2px 2px rgba(255,255,255,0.3); box-sizing: border-box;"></div><div style="position:absolute; top:2px; width:100%; font-size:18px; line-height:1;">{EMOJI[m_key]}</div><div style="position:absolute; bottom:2px; width:100%; font-size:11px; font-weight:bold; color:#555; line-height:1;">{m_key}</div></div>
+              <span style="display:block; margin-top:4px; font-size:11px; font-weight:600; color:#333; line-height:1;">{'∞' if lim > 900_000 else left}</span>
             </div>""", unsafe_allow_html=True)
     st.markdown("---")
 
     # New Chat button
-    if st.button("➕ New chat", use_container_width=True):
-        st.session_state.sid = _new_sid()
+    current_session_is_truly_blank = False
+    if st.session_state.sid in sessions: # Ensure current_sid is valid before checking its content
+        current_session_data = sessions.get(st.session_state.sid)
+        if current_session_data and \
+           current_session_data.get("title") == "New chat" and \
+           not current_session_data.get("messages"):
+            current_session_is_truly_blank = True
+    
+    if st.button("➕ New chat", use_container_width=True, disabled=current_session_is_truly_blank):
+        new_session_id = _new_sid() # _new_sid calls _delete_unused_blank_sessions internally
+        st.session_state.sid = new_session_id
+        _save(SESS_FILE, sessions) # Save all changes (new session, potentially deleted old blanks)
         st.rerun()
+    elif current_session_is_truly_blank:
+        st.caption("Current chat is empty. Add a message or switch.")
 
     # Chat session list
     st.subheader("Chats")
     sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
     for sid_key in sorted_sids:
-        title = sessions[sid_key]["title"][:25] + ("…" if len(sessions[sid_key]["title"]) > 25 else "") or "Untitled"
+        title = sessions[sid_key].get("title", "Untitled")[:25] + ("…" if len(sessions[sid_key].get("title", "")) > 25 else "")
         if st.button(title, key=f"session_button_{sid_key}", use_container_width=True):
-            if st.session_state.sid != sid_key: 
+            if st.session_state.sid != sid_key:
                 st.session_state.sid = sid_key
+                # Switched to sid_key. Clean up other blank sessions, keeping the newly selected one.
+                if _delete_unused_blank_sessions(keep_sid=sid_key):
+                    _save(SESS_FILE, sessions)
                 st.rerun()
-
     st.markdown("---")
 
-    # Model-routing info
     st.subheader("Model-Routing Map")
     st.caption(f"Router engine: {ROUTER_MODEL_ID}")
     with st.expander("Letters → Models"):
-        for k_model in sorted(MODEL_MAP.keys()): # Iterate only over active models
+        for k_model in sorted(MODEL_MAP.keys()):
             st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
-
     st.markdown("---")
 
-    # Live credit stats
     tot, used, rem = (
-        st.session_state.credits["total"],
-        st.session_state.credits["used"],
-        st.session_state.credits["remaining"],
+        st.session_state.credits.get("total"),
+        st.session_state.credits.get("used"),
+        st.session_state.credits.get("remaining"),
     )
-    with st.expander("Account stats (credits)", expanded=False): 
-        if st.button("Refresh Credits", key="refresh_credits_button"): 
+    with st.expander("Account stats (credits)", expanded=False):
+        if st.button("Refresh Credits", key="refresh_credits_button"):
             st.session_state.credits = dict(zip(
-                ("total","used","remaining"),
-                get_credits()
+                ("total","used","remaining"), get_credits()
             ))
             st.session_state.credits_ts = time.time()
-            tot, used, rem = (
-                st.session_state.credits["total"],
-                st.session_state.credits["used"],
-                st.session_state.credits["remaining"],
-            )
-            st.rerun() 
-
-        if tot is None:
-            st.warning("Could not fetch credits.")
+            st.rerun()
+        if tot is None: st.warning("Could not fetch credits.")
         else:
             st.markdown(f"**Purchased:** {tot:.2f} cr")
             st.markdown(f"**Used:** {used:.2f} cr")
@@ -577,52 +408,42 @@ with st.sidebar:
             try:
                 last_updated_str = datetime.fromtimestamp(st.session_state.credits_ts).strftime('%Y-%m-%d %H:%M:%S')
                 st.caption(f"Last updated: {last_updated_str}")
-            except TypeError: 
-                st.caption("Last updated: N/A")
+            except TypeError: st.caption("Last updated: N/A")
 
 
 # ────────────────────────── Main Chat Panel ─────────────────────
-
-current_sid = st.session_state.sid 
-if current_sid not in sessions: 
+current_sid = st.session_state.sid
+if current_sid not in sessions:
     st.error("Selected chat session not found. Creating a new one.")
-    current_sid = _new_sid()
+    current_sid = _new_sid() # _new_sid cleans, then creates new session
     st.session_state.sid = current_sid
-    st.rerun() 
+    _save(SESS_FILE, sessions) # Save because _new_sid modified global sessions
+    st.rerun()
 
-chat_history = sessions[current_sid]["messages"] 
+chat_history = sessions[current_sid]["messages"]
 
-# Display existing messages
 for msg_idx, msg in enumerate(chat_history):
     role = msg["role"]
-    avatar_for_display = "👤" # Default for user
+    avatar_for_display = "👤"
     if role == "assistant":
         model_key_in_message = msg.get("model")
-        if model_key_in_message == FALLBACK_MODEL_KEY:
-            avatar_for_display = FALLBACK_MODEL_EMOJI
-        elif model_key_in_message in EMOJI:
-            avatar_for_display = EMOJI[model_key_in_message]
-        else: # Handles old models (like 'E') or any other unknown/nil model key for past messages
-              # Default to F's emoji if F exists and is in EMOJI, else a generic bot.
-            avatar_for_display = EMOJI.get("F", "🤖") 
-            
+        if model_key_in_message == FALLBACK_MODEL_KEY: avatar_for_display = FALLBACK_MODEL_EMOJI
+        elif model_key_in_message in EMOJI: avatar_for_display = EMOJI[model_key_in_message]
+        else: avatar_for_display = EMOJI.get("F", "🤖")
     with st.chat_message(role, avatar=avatar_for_display):
-        st.markdown(msg["content"])                                       
+        st.markdown(msg["content"])
 
-# Input box
 if prompt := st.chat_input("Ask anything…"):
     chat_history.append({"role":"user","content":prompt})
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
 
-    # Determine which model to use
     allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
-    
     use_fallback_model = False
-    chosen_model_key_for_api = None # This will be 'A', 'B', '_FALLBACK_', etc.
+    chosen_model_key_for_api = None
     model_id_to_use_for_api = None
     max_tokens_for_api = None
-    avatar_for_response = "🤖" # Default assistant avatar
+    avatar_for_response = "🤖"
 
     if not allowed_standard_models:
         st.info(f"{FALLBACK_MODEL_EMOJI} All standard model daily quotas exhausted. Using free fallback model.")
@@ -633,21 +454,16 @@ if prompt := st.chat_input("Ask anything…"):
         use_fallback_model = True
         logging.info(f"All standard quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
     else:
-        # MODIFICATION START: Check if only one standard model is available
         if len(allowed_standard_models) == 1:
             chosen_model_key_for_api = allowed_standard_models[0]
             logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
-        else: # Multiple standard models available. Use router.
+        else:
             routed_key = route_choice(prompt, allowed_standard_models)
-            logging.info(f"Router selected model: '{routed_key}'.") # Log router's choice
+            logging.info(f"Router selected model: '{routed_key}'.")
             chosen_model_key_for_api = routed_key
-        # MODIFICATION END
-
-        # Common setup for the chosen standard model (whether selected directly or by router)
         model_id_to_use_for_api = MODEL_MAP[chosen_model_key_for_api]
         max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
         avatar_for_response = EMOJI[chosen_model_key_for_api]
-        # use_fallback_model remains False (initialized as False and not changed in this block)
 
     with st.chat_message("assistant", avatar=avatar_for_response):
         response_placeholder, full_response_content = st.empty(), ""
@@ -656,41 +472,31 @@ if prompt := st.chat_input("Ask anything…"):
             if error_message:
                 full_response_content = f"❗ **API Error**: {error_message}"
                 response_placeholder.error(full_response_content)
-                api_call_ok = False
-                break
+                api_call_ok = False; break
             if chunk:
                 full_response_content += chunk
                 response_placeholder.markdown(full_response_content + "▌")
         response_placeholder.markdown(full_response_content)
 
-    # Append assistant message, storing the actual model key used (standard or fallback)
     chat_history.append({"role":"assistant","content":full_response_content,"model": chosen_model_key_for_api})
 
-    if api_call_ok: 
-        if not use_fallback_model: # Only record use for standard, non-fallback models
-            record_use(chosen_model_key_for_api)
-        if sessions[current_sid]["title"] == "New chat":
+    if api_call_ok:
+        if not use_fallback_model: record_use(chosen_model_key_for_api)
+        
+        # Check if current chat was "New chat" and now has messages
+        if sessions[current_sid]["title"] == "New chat" and sessions[current_sid]["messages"]: # messages list now includes user + assistant
             sessions[current_sid]["title"] = _autoname(prompt)
-    
-    _save(SESS_FILE, sessions) 
-    st.rerun() 
+            # Current chat is now named. Clean up any OTHER blank sessions.
+            _delete_unused_blank_sessions(keep_sid=current_sid) 
+            # No specific save/rerun here for _delete, main ones below cover it
 
+    _save(SESS_FILE, sessions)
+    st.rerun()
 
 # ───────────────────────── Self-Relaunch ──────────────────────
-
 if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
     os.environ["_IS_STRL"] = "1"
     port = os.getenv("PORT", "8501")
-    cmd = [
-        sys.executable, "-m", "streamlit", "run", __file__,
-        "--server.port", port, 
-        "--server.address", "0.0.0.0",
-    ]
+    cmd = [sys.executable, "-m", "streamlit", "run", __file__, "--server.port", port, "--server.address", "0.0.0.0"]
     logging.info(f"Relaunching with Streamlit: {' '.join(cmd)}")
     subprocess.run(cmd, check=False)
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution.
-Python
-IGNORE_WHEN_COPYING_END
