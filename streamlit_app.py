@@ -412,7 +412,7 @@ def load_custom_css():
 
         [data-testid="stChatInput"] {
             background-color: #1A202C !important;
-            border-top: 1px solid #2D3748 !important;
+            border: 1px solid #2D3748 !important; /* MODIFIED: Was border-top, now full border */
             padding: 0.75rem 1rem !important;
             position: sticky; bottom: 0; left:0; right:0;
             z-index: 100;
@@ -422,7 +422,7 @@ def load_custom_css():
         }
         html[data-theme="light"] [data-testid="stChatInput"] {
             background-color: #F0F2F6 !important;
-            border-top-color: #D1D7E0 !important;
+            border-color: #D1D7E0 !important; /* MODIFIED: Was border-top-color, now border-color for full border */
         }
 
         [data-testid="stChatInput"] textarea {
