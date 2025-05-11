@@ -9,6 +9,7 @@ OpenRouter Streamlit Chat — Full Edition
 • Auto-titling of new chats
 • Comprehensive logging
 • Self-relaunch under python main.py
+• In-app API Key configuration
 """
 
 # ───────────────────────── Imports ─────────────────────────
@@ -19,7 +20,7 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 # ────────────────────────── Configuration ───────────────────
-OPENROUTER_API_KEY  = "api.key/women" # Replace with your actual key or environment variable
+# OPENROUTER_API_KEY  is now managed via app_config.json and st.session_state
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT     = 120
 
@@ -68,6 +69,7 @@ TZ = ZoneInfo("Australia/Sydney")
 DATA_DIR   = Path(__file__).parent
 SESS_FILE  = DATA_DIR / "chat_sessions.json"
 QUOTA_FILE = DATA_DIR / "quotas.json"
+CONFIG_FILE = DATA_DIR / "app_config.json" # For storing API key and other app settings
 
 
 # ──────────────────────── Helper Functions ───────────────────────
@@ -84,6 +86,14 @@ def _save(path: Path, obj):
 def _today():    return date.today().isoformat()
 def _yweek():    return datetime.now(TZ).strftime("%G-%V")
 def _ymonth():   return datetime.now(TZ).strftime("%Y-%m")
+
+def _load_app_config():
+    return _load(CONFIG_FILE, {})
+
+def _save_app_config(api_key_value: str):
+    config_data = _load_app_config() # Load existing to preserve other settings if any
+    config_data["openrouter_api_key"] = api_key_value
+    _save(CONFIG_FILE, config_data)
 
 
 # ───────────────────── Quota Management ────────────────────────
@@ -173,8 +183,13 @@ logging.basicConfig(
 
 # ────────────────────────── API Calls ──────────────────────────
 def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT):
+    # API Key is checked by callers (streamed, route_choice)
+    active_api_key = st.session_state.get("openrouter_api_key")
+    # This function assumes active_api_key is valid if it reaches here.
+    # Callers should handle the case where it's None.
+
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {active_api_key}",
         "Content-Type":  "application/json"
     }
     logging.info(f"POST /chat/completions → model={payload.get('model')}, stream={stream}, max_tokens={payload.get('max_tokens')}")
@@ -184,54 +199,75 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
     )
 
 def streamed(model: str, messages: list, max_tokens_out: int):
+    active_api_key = st.session_state.get("openrouter_api_key")
+    if not active_api_key:
+        logging.error("API Key missing for streamed call.")
+        yield None, "OpenRouter API Key is not set. Please configure it in the sidebar."
+        return
+
     payload = {
         "model":      model,
         "messages":   messages,
         "stream":     True,
         "max_tokens": max_tokens_out
     }
-    with api_post(payload, stream=True) as r:
-        try:
-            r.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            text = r.text
-            logging.error(f"Stream HTTPError {e.response.status_code}: {text}")
-            yield None, f"HTTP {e.response.status_code}: {text}"
-            return
-
-        for line in r.iter_lines():
-            if not line: continue
-            line_str = line.decode("utf-8")
-            if line_str.startswith(": OPENROUTER PROCESSING"):
-                logging.info(f"OpenRouter PING: {line_str.strip()}")
-                continue
-            if not line_str.startswith("data: "):
-                logging.warning(f"Unexpected non-event-stream line: {line}")
-                continue
-            data = line_str[6:].strip()
-            if data == "[DONE]": break
+    try:
+        with api_post(payload, stream=True) as r:
             try:
-                chunk = json.loads(data)
-            except json.JSONDecodeError:
-                logging.error(f"Bad JSON chunk: {data}")
-                yield None, "Error decoding response chunk"
+                r.raise_for_status()
+            except requests.exceptions.HTTPError as e:
+                text = r.text
+                status_code = e.response.status_code
+                logging.error(f"Stream HTTPError {status_code}: {text}")
+                if status_code == 401:
+                     yield None, f"HTTP {status_code}: Unauthorized. Check your API Key. Details: {text}"
+                else:
+                    yield None, f"HTTP {status_code}: {text}"
                 return
-            if "error" in chunk:
-                msg = chunk["error"].get("message", "Unknown API error")
-                logging.error(f"API chunk error: {msg}")
-                yield None, msg
-                return
-            delta = chunk["choices"][0]["delta"].get("content")
-            if delta is not None: yield delta, None
+
+            for line in r.iter_lines():
+                if not line: continue
+                line_str = line.decode("utf-8")
+                if line_str.startswith(": OPENROUTER PROCESSING"):
+                    logging.info(f"OpenRouter PING: {line_str.strip()}")
+                    continue
+                if not line_str.startswith("data: "):
+                    logging.warning(f"Unexpected non-event-stream line: {line}")
+                    continue
+                data = line_str[6:].strip()
+                if data == "[DONE]": break
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    logging.error(f"Bad JSON chunk: {data}")
+                    yield None, "Error decoding response chunk"
+                    return
+                if "error" in chunk:
+                    msg = chunk["error"].get("message", "Unknown API error")
+                    logging.error(f"API chunk error: {msg}")
+                    yield None, msg
+                    return
+                delta = chunk["choices"][0]["delta"].get("content")
+                if delta is not None: yield delta, None
+    except Exception as e: # Catch broader exceptions like connection errors before `with`
+        logging.error(f"Streamed API call failed before request: {e}")
+        yield None, f"Failed to connect or make request: {e}"
+
 
 # ───────────────────────── Model Routing ───────────────────────
 def route_choice(user_msg: str, allowed: list[str]) -> str:
+    active_api_key = st.session_state.get("openrouter_api_key")
+    if not active_api_key:
+        logging.warning("Router: API Key not set. Cannot make router call. Falling back.")
+        return "F" if "F" in allowed else (allowed[0] if allowed else "F") # Ensure fallback logic is sound
+
     if not allowed:
         logging.warning("route_choice called with empty allowed list. Defaulting to 'F'.")
         return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F")
     if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
         return allowed[0]
+
     system_lines = [
         "You are an intelligent model-routing assistant.",
         "Select ONLY one letter from the following available models:",
@@ -251,29 +287,47 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
     ]
     payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10}
     try:
-        r = api_post(payload_r)
+        r = api_post(payload_r) # Assumes api_post uses the key from session_state
         r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"].strip().upper()
         logging.info(f"Router raw response: {text}")
         for ch in text:
             if ch in allowed: return ch
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code
+        if status_code == 401:
+            logging.error(f"Router call HTTPError {status_code}: Unauthorized. Check API Key. {e.response.text}")
+        else:
+            logging.error(f"Router call HTTPError {status_code}: {e.response.text}")
     except Exception as e:
         logging.error(f"Router call error: {e}")
+
     fallback_choice = "F" if "F" in allowed else allowed[0]
     logging.warning(f"Router fallback to model: {fallback_choice}")
     return fallback_choice
 
 # ───────────────────── Credits Endpoint ───────────────────────
 def get_credits():
+    active_api_key = st.session_state.get("openrouter_api_key")
+    if not active_api_key:
+        logging.warning("Could not fetch /credits: API Key not set.")
+        return None, None, None
     try:
         r = requests.get(
             f"{OPENROUTER_API_BASE}/credits",
-            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+            headers={"Authorization": f"Bearer {active_api_key}"},
             timeout=10
         )
         r.raise_for_status()
         d = r.json()["data"]
         return d["total_credits"], d["total_usage"], d["total_credits"] - d["total_usage"]
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code
+        if status_code == 401:
+            logging.warning(f"Could not fetch /credits: HTTP {status_code} Unauthorized. Check API Key. {e.response.text}")
+        else:
+            logging.warning(f"Could not fetch /credits: HTTP {status_code}. {e.response.text}")
+        return None, None, None
     except Exception as e:
         logging.warning(f"Could not fetch /credits: {e}")
         return None, None, None
@@ -346,8 +400,6 @@ def load_custom_css():
         }
         [data-testid="stSidebar"] .stButton > button:hover {
             border-color: var(--primary);
-            /* For hover, slightly change background. In dark mode, this might be lighter. */
-            /* Using a semi-transparent overlay of primary color might work too. */
             background-color: color-mix(in srgb, var(--primary) 10%, var(--secondary-background-color));
             box-shadow: 0 1px 3px var(--shadow);
         }
@@ -356,26 +408,20 @@ def load_custom_css():
             outline: 2px auto var(--primary);
             outline-offset: 2px;
         }
-        /* Streamlit handles disabled button styles fairly well by default.
-           If more customization is needed, target with html[data-theme='dark/light'] */
         [data-testid="stSidebar"] .stButton > button:disabled {
-            /* background-color: var(--color-gray-20); For light theme */
-            /* color: var(--text-color-tertiary); */
-            /* border-color: var(--color-gray-30); */
-            opacity: 0.6; /* General approach for disabled */
+            opacity: 0.6; 
             cursor: not-allowed;
         }
 
         /* Specific "New Chat" button - targeted by its key */
         [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button {
              background-color: var(--primary);
-             color: white; /* White text on primary color is usually fine */
+             color: white; 
              border-color: var(--primary);
         }
         [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:hover {
-             /* background-color: #1565C0; */ /* Old hardcoded */
-             filter: brightness(90%); /* Darken the primary color slightly on hover */
-             border-color: var(--primary); /* Keep or slightly darken */
+             filter: brightness(90%); 
+             border-color: var(--primary); 
         }
 
 
@@ -391,10 +437,10 @@ def load_custom_css():
             height: 60px;
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            background: var(--secondary-background-color); /* Theme-aware background */
+            background: var(--secondary-background-color); 
             position: relative;
             overflow: hidden;
-            box-shadow: inset 0 1px 2px var(--shadow-sm, rgba(0,0,0,0.05)); /* Use a subtle inset shadow variable or fallback */
+            box-shadow: inset 0 1px 2px var(--shadow-sm, rgba(0,0,0,0.05)); 
             margin-bottom: 4px;
         }
         .token-jar-fill {
@@ -402,7 +448,6 @@ def load_custom_css():
             bottom: 0;
             width: 100%;
             transition: height 0.3s ease-in-out, background-color 0.3s ease-in-out;
-            /* box-shadow: inset 0 -1px 2px var(--shadow-sm, rgba(0,0,0,0.02)); */ /* Subtle effect */
         }
         .token-jar-emoji {
             position: absolute;
@@ -417,7 +462,7 @@ def load_custom_css():
             width: 100%;
             font-size: 11px;
             font-weight: 600;
-            color: var(--text-color); /* Theme-aware text */
+            color: var(--text-color); 
             opacity: 0.8;
             line-height: 1;
         }
@@ -426,7 +471,7 @@ def load_custom_css():
             margin-top: 2px;
             font-size: 11px;
             font-weight: 600;
-            color: var(--text-color); /* Theme-aware text */
+            color: var(--text-color); 
             opacity: 0.9;
             line-height: 1;
         }
@@ -436,87 +481,68 @@ def load_custom_css():
             border: 1px solid var(--border-color);
             border-radius: 8px;
             margin-bottom: 1rem;
-            background-color: var(--background-color-primary); /* Main background for content area */
+            background-color: var(--background-color-primary); 
         }
         .stExpander header {
             font-weight: 600;
             font-size: 0.95rem;
             padding: 0.6rem 1rem !important;
-            background-color: var(--secondary-background-color); /* Header distinct from content */
+            background-color: var(--secondary-background-color); 
             border-bottom: 1px solid var(--border-color);
             border-top-left-radius: 7px;
             border-top-right-radius: 7px;
-            color: var(--text-color); /* Ensure header text is theme-aware */
+            color: var(--text-color); 
         }
         .stExpander header:hover {
-            /* Slightly change background on hover, works for both themes */
             background-color: color-mix(in srgb, var(--text-color) 5%, var(--secondary-background-color));
         }
         .stExpander div[data-testid="stExpanderDetails"] {
              padding: 0.75rem 1rem;
-             background-color: var(--background-color-primary); /* Ensure content area has correct background */
+             background-color: var(--background-color-primary); 
         }
 
-
         /* Chat Message Styling */
-        /* NOTE: The screenshot shows chat messages already looking good in dark mode.
-           The following CSS makes your custom light-mode styling theme-aware.
-           If Streamlit's default chat message styling is preferred in dark mode,
-           you might only need the html[data-theme="light"] parts. */
         [data-testid="stChatMessage"] {
             border-radius: 12px;
             padding: 14px 20px;
             margin-bottom: 12px;
             box-shadow: 0 2px 5px var(--shadow);
-            border: 1px solid transparent; /* Base border */
-            /* color: var(--text-color); General text color is inherited or set by theme */
+            border: 1px solid transparent; 
         }
 
-        /* User message specific styling */
         html[data-theme="light"] [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
-            background-color: #E3F2FD; /* Light blue for user messages */
-            border-left: 3px solid #1E88E5; /* Original primary blue */
-            color: #0D47A1; /* Darker blue text for contrast on light blue bg */
+            background-color: #E3F2FD; 
+            border-left: 3px solid #1E88E5; 
+            color: #0D47A1; 
         }
         html[data-theme="dark"] [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
-            background-color: color-mix(in srgb, var(--primary) 15%, var(--secondary-background-color)); /* Dark theme: tinted secondary bg */
+            background-color: color-mix(in srgb, var(--primary) 15%, var(--secondary-background-color)); 
             border-left: 3px solid var(--primary);
             color: var(--text-color);
         }
 
-        /* Assistant message specific styling */
         html[data-theme="light"] [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
-            background-color: #f9f9f9; /* Slightly off-white for assistant */
-            border-left: 3px solid #757575; /* Mid-gray */
-            color: var(--color-gray-80, #333); /* Dark gray text */
+            background-color: #f9f9f9; 
+            border-left: 3px solid #757575; 
+            color: var(--color-gray-80, #333); 
         }
         html[data-theme="dark"] [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
-            background-color: var(--secondary-background-color); /* Use secondary for assistant, distinct from user */
-            border-left: 3px solid var(--color-gray-60, #888); /* Lighter gray border for dark theme */
+            background-color: var(--secondary-background-color); 
+            border-left: 3px solid var(--color-gray-60, #888); 
             color: var(--text-color);
         }
         
         [data-testid="stChatMessage"] .stMarkdown p {
-            margin-bottom: 0.3rem; /* Adjust paragraph spacing in messages */
+            margin-bottom: 0.3rem; 
             line-height: 1.5;
         }
 
-        /* Divider */
         hr {
           margin-top: 1.5rem;
           margin-bottom: 1.5rem;
           border: 0;
-          border-top: 1px solid var(--border-color); /* Theme-aware divider */
+          border-top: 1px solid var(--border-color); 
         }
-
-        /* Chat input - Streamlit handles this well, usually no need to override unless specific design */
-        /*
-        [data-testid="stChatInput"] {
-            background-color: var(--secondary-background-color);
-            border-top: 1px solid var(--border-color);
-        }
-        */
-
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -529,7 +555,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-load_custom_css() # Load custom CSS styles
+# Initialize API key in session state from config file
+if "openrouter_api_key" not in st.session_state:
+    app_conf = _load_app_config()
+    st.session_state.openrouter_api_key = app_conf.get("openrouter_api_key", None)
+
+load_custom_css()
 
 # Initial SID Management and Cleanup
 needs_save_and_rerun_on_startup = False
@@ -546,23 +577,47 @@ else:
 
 if needs_save_and_rerun_on_startup:
     _save(SESS_FILE, sessions)
-    st.rerun()
+    st.rerun() # This rerun might happen before API key is set by user, which is fine.
 
 if "credits" not in st.session_state:
     st.session_state.credits = dict(zip(
         ("total", "used", "remaining"),
-        get_credits()
+        get_credits() # This will now check for API key internally
     ))
     st.session_state.credits_ts = time.time()
 
 
 # ───────────────────────── Sidebar ─────────────────────────────
 with st.sidebar:
-    # This container helps target the logo and title specifically with CSS
-    # st.markdown('<div class="sidebar-header">', unsafe_allow_html=True) # This doesn't work as expected for child elements
-    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50) # CSS will style this
-    st.title("OpenRouter Chat") # CSS will style this
-    # st.markdown('</div>', unsafe_allow_html=True)
+    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50)
+    st.title("OpenRouter Chat")
+
+    # API Key Configuration Expander
+    with st.expander("API Key Configuration", expanded=not st.session_state.get("openrouter_api_key")):
+        current_key_display = "Not set"
+        if st.session_state.get("openrouter_api_key"):
+            key_val = st.session_state.openrouter_api_key
+            current_key_display = f"••••••••{key_val[-4:]}" if len(key_val) > 4 else "••••"
+        st.caption(f"Current key: {current_key_display}")
+
+        new_api_key_input = st.text_input(
+            "Enter new OpenRouter API Key",
+            type="password",
+            key="api_key_input_field", # Unique key for the input field
+            placeholder="sk-or-..."
+        )
+        if st.button("Save API Key", key="save_api_key_button"):
+            if new_api_key_input and new_api_key_input.startswith("sk-or-"):
+                st.session_state.openrouter_api_key = new_api_key_input
+                _save_app_config(new_api_key_input)
+                st.success("API Key saved! The app will now use this key.")
+                time.sleep(1) # Brief pause for user to see message
+                st.rerun()
+            elif not new_api_key_input:
+                st.warning("Please enter an API key.")
+            else:
+                st.error("Invalid API key format. It should start with 'sk-or-'.")
+    st.divider()
 
     st.subheader("Daily Jars (Msgs Left)")
     active_model_keys = sorted(MODEL_MAP.keys())
@@ -573,12 +628,10 @@ with st.sidebar:
         pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0)
         fill = int(pct * 100)
         
-        # Gauge colors
-        if pct > .5: color = "#4caf50" # Green
-        elif pct > .25: color = "#ffc107" # Yellow
-        else: color = "#f44336" # Red
+        if pct > .5: color = "#4caf50" 
+        elif pct > .25: color = "#ffc107" 
+        else: color = "#f44336" 
         
-        # Use new CSS classes for token jars
         cols[i].markdown(f"""
             <div class="token-jar-container">
               <div class="token-jar">
@@ -588,9 +641,8 @@ with st.sidebar:
               </div>
               <span class="token-jar-remaining">{'∞' if lim > 900_000 else left}</span>
             </div>""", unsafe_allow_html=True)
-    st.divider() # Modern divider
+    st.divider() 
 
-    # New Chat button
     current_session_is_truly_blank = False
     if st.session_state.sid in sessions:
         current_session_data = sessions.get(st.session_state.sid)
@@ -599,7 +651,6 @@ with st.sidebar:
            not current_session_data.get("messages"):
             current_session_is_truly_blank = True
     
-    # The key for "New chat" button helps target it with CSS if needed
     if st.button("➕ New chat", key="new_chat_button_top", use_container_width=True, disabled=current_session_is_truly_blank):
         new_session_id = _new_sid()
         st.session_state.sid = new_session_id
@@ -608,19 +659,15 @@ with st.sidebar:
     elif current_session_is_truly_blank:
         st.caption("Current chat is empty. Add a message or switch.")
 
-    # Chat session list
     st.subheader("Chats")
     sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
     for sid_key in sorted_sids:
         title = sessions[sid_key].get("title", "Untitled")
         display_title = title[:25] + ("…" if len(title) > 25 else "")
         
-        # Highlight current session button (subtly, can be enhanced with more complex CSS/JS)
-        button_type = "secondary" # Default Streamlit button type
+        button_type = "secondary" 
         if st.session_state.sid == sid_key:
-            # Streamlit doesn't offer easy native "active" state for buttons
-            # We could make the text bold or add an emoji.
-            display_title = f"🔹 {display_title}" # Indicate active chat
+            display_title = f"🔹 {display_title}" 
 
         if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True):
             if st.session_state.sid != sid_key:
@@ -628,14 +675,14 @@ with st.sidebar:
                 if _delete_unused_blank_sessions(keep_sid=sid_key):
                     _save(SESS_FILE, sessions)
                 st.rerun()
-    st.divider() # Modern divider
+    st.divider() 
 
     st.subheader("Model-Routing Map")
     st.caption(f"Router engine: {ROUTER_MODEL_ID}")
-    with st.expander("Letters → Models", expanded=False): # Keep it collapsed by default
+    with st.expander("Letters → Models", expanded=False): 
         for k_model in sorted(MODEL_MAP.keys()):
             st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
-    st.divider() # Modern divider
+    st.divider() 
 
     tot, used, rem = (
         st.session_state.credits.get("total"),
@@ -649,11 +696,15 @@ with st.sidebar:
             ))
             st.session_state.credits_ts = time.time()
             st.rerun()
-        if tot is None: st.warning("Could not fetch credits.")
+        if tot is None: 
+            if not st.session_state.get("openrouter_api_key"):
+                st.warning("Set API Key to fetch credits.")
+            else:
+                st.warning("Could not fetch credits. Check API key or network.")
         else:
             st.markdown(f"**Purchased:** ${tot:.2f} cr")
             st.markdown(f"**Used:** ${used:.2f} cr")
-            st.markdown(f"**Remaining:** ${rem:.2f} cr") # Added $ sign assuming credits are monetary
+            st.markdown(f"**Remaining:** ${rem:.2f} cr") 
             try:
                 last_updated_str = datetime.fromtimestamp(st.session_state.credits_ts, TZ).strftime('%-d %b %Y, %H:%M:%S')
                 st.caption(f"Last updated: {last_updated_str}")
@@ -669,82 +720,99 @@ if current_sid not in sessions:
     _save(SESS_FILE, sessions)
     st.rerun()
 
-# Display current chat title (optional, can be styled)
-# st.subheader(f"Chat: {sessions[current_sid].get('title', 'Untitled')}")
-# st.markdown(f"### {sessions[current_sid].get('title', 'Untitled')}")
-
-
 chat_history = sessions[current_sid]["messages"]
 
 for msg_idx, msg in enumerate(chat_history):
     role = msg["role"]
-    avatar_for_display = "👤" # User
+    avatar_for_display = "👤" 
     if role == "assistant":
         model_key_in_message = msg.get("model")
         if model_key_in_message == FALLBACK_MODEL_KEY: avatar_for_display = FALLBACK_MODEL_EMOJI
         elif model_key_in_message in EMOJI: avatar_for_display = EMOJI[model_key_in_message]
-        else: avatar_for_display = EMOJI.get("F", "🤖") # Default assistant avatar
+        else: avatar_for_display = EMOJI.get("F", "🤖") 
     
-    # Use a key for chat messages if you plan to manipulate them later, though usually not needed for display
     with st.chat_message(role, avatar=avatar_for_display):
         st.markdown(msg["content"])
 
-if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
-    chat_history.append({"role":"user","content":prompt})
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(prompt)
+# Check for API key before showing chat input
+if not st.session_state.get("openrouter_api_key"):
+    st.warning("👋 Please set your OpenRouter API Key in the sidebar (under 'API Key Configuration') to start chatting.")
+else:
+    if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
+        chat_history.append({"role":"user","content":prompt})
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(prompt)
 
-    allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
-    use_fallback_model = False
-    chosen_model_key_for_api = None
-    model_id_to_use_for_api = None
-    max_tokens_for_api = None
-    avatar_for_response = "🤖"
+        allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
+        use_fallback_model = False
+        chosen_model_key_for_api = None
+        model_id_to_use_for_api = None
+        max_tokens_for_api = None
+        avatar_for_response = "🤖"
 
-    if not allowed_standard_models:
-        st.info(f"{FALLBACK_MODEL_EMOJI} All standard model daily quotas exhausted. Using free fallback model.")
-        chosen_model_key_for_api = FALLBACK_MODEL_KEY
-        model_id_to_use_for_api = FALLBACK_MODEL_ID
-        max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
-        avatar_for_response = FALLBACK_MODEL_EMOJI
-        use_fallback_model = True
-        logging.info(f"All standard quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
-    else:
-        if len(allowed_standard_models) == 1:
-            chosen_model_key_for_api = allowed_standard_models[0]
-            logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
+        if not allowed_standard_models:
+            st.info(f"{FALLBACK_MODEL_EMOJI} All standard model daily quotas exhausted. Using free fallback model.")
+            chosen_model_key_for_api = FALLBACK_MODEL_KEY
+            model_id_to_use_for_api = FALLBACK_MODEL_ID
+            max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
+            avatar_for_response = FALLBACK_MODEL_EMOJI
+            use_fallback_model = True
+            logging.info(f"All standard quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
         else:
-            routed_key = route_choice(prompt, allowed_standard_models)
-            logging.info(f"Router selected model: '{routed_key}'.")
-            chosen_model_key_for_api = routed_key
-        model_id_to_use_for_api = MODEL_MAP[chosen_model_key_for_api]
-        max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
-        avatar_for_response = EMOJI[chosen_model_key_for_api]
+            if len(allowed_standard_models) == 1:
+                chosen_model_key_for_api = allowed_standard_models[0]
+                logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
+            else:
+                # Ensure route_choice can handle API key not being set (it does by falling back)
+                routed_key = route_choice(prompt, allowed_standard_models)
+                logging.info(f"Router selected model: '{routed_key}'.")
+                chosen_model_key_for_api = routed_key
+            
+            # This check is vital if route_choice could return a key for which MODEL_MAP entry is missing
+            if chosen_model_key_for_api not in MODEL_MAP:
+                logging.error(f"Router returned key '{chosen_model_key_for_api}' not in MODEL_MAP. Using fallback 'F'.")
+                chosen_model_key_for_api = "F" # Or some other sensible default
+                # Consider re-checking if "F" is allowed or has quota, or just use Fallback Model ID
+                if "F" not in MODEL_MAP or remaining("F")[0] <= 0: # if F is also not available
+                    st.error("Selected model via router is invalid, and fallback F is unavailable. Using global fallback.")
+                    chosen_model_key_for_api = FALLBACK_MODEL_KEY
+                    model_id_to_use_for_api = FALLBACK_MODEL_ID
+                    max_tokens_for_api = FALLBACK_MODEL_MAX_TOKENS
+                    avatar_for_response = FALLBACK_MODEL_EMOJI
+                    use_fallback_model = True
 
-    with st.chat_message("assistant", avatar=avatar_for_response):
-        response_placeholder, full_response_content = st.empty(), ""
-        api_call_ok = True
-        for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
-            if error_message:
-                full_response_content = f"❗ **API Error**: {error_message}"
-                response_placeholder.error(full_response_content) # Use st.error for visual distinction
-                api_call_ok = False; break
-            if chunk:
-                full_response_content += chunk
-                response_placeholder.markdown(full_response_content + "▌")
-        response_placeholder.markdown(full_response_content)
 
-    chat_history.append({"role":"assistant","content":full_response_content,"model": chosen_model_key_for_api})
+            if not use_fallback_model: # if not already set to fallback by above logic
+                model_id_to_use_for_api = MODEL_MAP[chosen_model_key_for_api]
+                max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
+                avatar_for_response = EMOJI[chosen_model_key_for_api]
 
-    if api_call_ok:
-        if not use_fallback_model: record_use(chosen_model_key_for_api)
-        
-        if sessions[current_sid]["title"] == "New chat" and sessions[current_sid]["messages"]:
-            sessions[current_sid]["title"] = _autoname(prompt)
-            _delete_unused_blank_sessions(keep_sid=current_sid)
+        with st.chat_message("assistant", avatar=avatar_for_response):
+            response_placeholder, full_response_content = st.empty(), ""
+            api_call_ok = True
+            # streamed function now checks for API key internally
+            for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
+                if error_message:
+                    full_response_content = f"❗ **API Error**: {error_message}"
+                    response_placeholder.error(full_response_content) 
+                    api_call_ok = False; break
+                if chunk:
+                    full_response_content += chunk
+                    response_placeholder.markdown(full_response_content + "▌")
+            response_placeholder.markdown(full_response_content)
 
-    _save(SESS_FILE, sessions)
-    st.rerun()
+        chat_history.append({"role":"assistant","content":full_response_content,"model": chosen_model_key_for_api})
+
+        if api_call_ok:
+            if not use_fallback_model and chosen_model_key_for_api != FALLBACK_MODEL_KEY: # ensure we don't try to record use for fallback
+                record_use(chosen_model_key_for_api)
+            
+            if sessions[current_sid]["title"] == "New chat" and sessions[current_sid]["messages"]:
+                sessions[current_sid]["title"] = _autoname(prompt)
+                _delete_unused_blank_sessions(keep_sid=current_sid)
+
+        _save(SESS_FILE, sessions)
+        st.rerun()
 
 # ───────────────────────── Self-Relaunch ──────────────────────
 if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
