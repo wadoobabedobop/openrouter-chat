@@ -1,7 +1,3 @@
-Okay, I'll modify the script so that if only one standard (non-fallback) model has remaining daily quota, it will be selected directly, bypassing the model router.
-
-Here's the updated code block for the main chat panel section. I've marked the changes with comments.
-
 # ────────────────────────── Main Chat Panel ─────────────────────
 
 current_sid = st.session_state.sid 
