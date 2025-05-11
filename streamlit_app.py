@@ -311,10 +311,26 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         elif k in MODEL_MAP: # Should always be true if k is in allowed from MODEL_MAP keys
              system_lines.append(f"- {k}: (Model {MODEL_MAP[k]})")
 
-    system_lines.extend([
-        "Based on the user's query, choose the letter that best balances quality, speed, and cost-sensitivity.",
-        "Respond with ONLY the single capital letter. No extra text."
-    ])
+    # MODIFIED: Instructions to prefer model F
+    instruction_lines = [
+        "Based on the user's query, choose the most suitable model letter."
+    ]
+    if "F" in allowed:
+        instruction_lines.append(
+            "Model F is generally preferred for its speed and cost-effectiveness. "
+            "Select F for most general queries. "
+            "Only choose a different model if the query clearly requires capabilities "
+            "that F is unlikely to provide (e.g., extremely high creativity, very complex "
+            "multi-step reasoning, or specific tasks known to be better on other models based on their descriptions)."
+        )
+    else:
+        instruction_lines.append(
+            "When choosing, balance quality, speed, and cost-sensitivity based on the query and model descriptions."
+        )
+    instruction_lines.append("Respond with ONLY the single capital letter. No extra text.")
+    system_lines.extend(instruction_lines)
+    # END MODIFICATION
+
     router_messages = [
         {"role": "system", "content": "\n".join(system_lines)},
         {"role": "user",   "content": user_msg}
@@ -724,11 +740,11 @@ else:
             fill = int(pct * 100)
             
             # CORRECTED SYNTAX FOR IF/ELIF/ELSE BLOCK:
-            if pct > 0.5: 
+            if pct > 0.5:
                 color = "#4caf50"
-            elif pct > 0.25: 
+            elif pct > 0.25:
                 color = "#ffc107"
-            else: 
+            else:
                 color = "#f44336"
             
             # Ensure EMOJI[m_key] exists or provide a fallback
