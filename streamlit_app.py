@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 # ────────────────────────── Configuration ───────────────────
-OPENROUTER_API_KEY  = "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" # Replace with your actual key or environment variable
+OPENROUTER_API_KEY  = "api.key/women" # Replace with your actual key or environment variable
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT     = 120
 
