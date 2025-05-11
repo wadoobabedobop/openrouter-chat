@@ -189,7 +189,7 @@ def is_api_key_valid(api_key_value):
 def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT):
     active_api_key = st.session_state.get("openrouter_api_key")
     if not is_api_key_valid(active_api_key):
-        raise ValueError("OpenRouter API Key is not set or invalid in session state for api_post.")
+        raise ValueError("OpenRouter API Key is not set or invalid in session state. Please configure it in Settings.")
 
     headers = {
         "Authorization": f"Bearer {active_api_key}",
@@ -257,15 +257,16 @@ def streamed(model: str, messages: list, max_tokens_out: int):
 # ───────────────────────── Model Routing ───────────────────────
 def route_choice(user_msg: str, allowed: list[str]) -> str:
     active_api_key = st.session_state.get("openrouter_api_key")
-    fallback_choice = "F" if "F" in allowed else (allowed[0] if allowed else "F")
+    fallback_choice = "F" if "F" in allowed else (allowed[0] if allowed else "F") # Ensure fallback_choice is valid
+
+    # Validate fallback_choice against MODEL_MAP if necessary for non-F cases
+    if not allowed:
+        logging.warning("route_choice called with empty allowed list. Defaulting to 'F' or first available model.")
+        return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F") # Final fallback
 
     if not is_api_key_valid(active_api_key):
         logging.warning(f"Router: API Key not set or invalid. Cannot make router call. Falling back to: {fallback_choice}")
         return fallback_choice
-
-    if not allowed:
-        logging.warning("route_choice called with empty allowed list. Defaulting to 'F'.")
-        return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F")
 
     if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
@@ -279,7 +280,11 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         if k in MODEL_DESCRIPTIONS:
             system_lines.append(f"- {k}: {MODEL_DESCRIPTIONS[k]}")
         else:
-            logging.warning(f"Model key {k} found in 'allowed' but not in MODEL_DESCRIPTIONS.")
+            logging.warning(f"Model key {k} found in 'allowed' but not in MODEL_DESCRIPTIONS for router prompt.")
+            # Optionally, provide a generic description if k is in MODEL_MAP
+            if k in MODEL_MAP:
+                 system_lines.append(f"- {k}: (Model {MODEL_MAP[k]})")
+
     system_lines.extend([
         "Based on the user's query, choose the letter that best balances quality, speed, and cost-sensitivity.",
         "Respond with ONLY the single capital letter. No extra text."
@@ -290,13 +295,13 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
     ]
     payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10}
     try:
-        r = api_post(payload_r)
+        r = api_post(payload_r) # This will use session_state key and can raise ValueError
         r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"].strip().upper()
         logging.info(f"Router raw response: {text}")
         for ch in text:
             if ch in allowed: return ch
-    except ValueError as ve:
+    except ValueError as ve: # Catch API key not found/invalid from api_post
         logging.error(f"ValueError during router call setup: {ve}")
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code
@@ -337,7 +342,7 @@ def get_credits():
         return None, None, None
 
 # ───────────────────────── UI Styling ──────────────────────────
-def load_custom_css(): # Keep existing CSS as is
+def load_custom_css():
     css = """
     <style>
         /* General Styles */
@@ -351,14 +356,7 @@ def load_custom_css(): # Keep existing CSS as is
             padding: 1.5rem 1rem;
         }
 
-        /* Sidebar Header (Logo + Title) */
-        [data-testid="stSidebar"] > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) { /* This might need adjustment depending on settings button placement */
-            display: flex !important;
-            align-items: center !important;
-            margin-bottom: 1.5rem !important;
-            padding-bottom: 1rem;
-            /* border-bottom: 1px solid var(--border-color); /* Theme-aware border */ /* Might remove if settings is first */
-        }
+        /* Sidebar Image (Logo) */
         [data-testid="stSidebar"] .stImage {
             margin-right: 12px;
         }
@@ -368,11 +366,13 @@ def load_custom_css(): # Keep existing CSS as is
             width: 50px !important;
             height: 50px !important;
         }
+        /* Sidebar Title */
         [data-testid="stSidebar"] h1 { /* Targets st.title in sidebar */
             font-size: 1.6rem !important;
             color: var(--primary); /* Use Streamlit's primary color */
             font-weight: 600;
-            margin-bottom: 0;
+            margin-bottom: 0; /* Adjust if st.columns adds too much space */
+            padding-top: 0.3rem; /* Align better with image in columns */
         }
 
         /* Sidebar Subheaders */
@@ -600,7 +600,7 @@ if needs_save_and_rerun_on_startup:
 if "credits" not in st.session_state:
     st.session_state.credits = dict(zip(
         ("total", "used", "remaining"),
-        get_credits()
+        get_credits() # This will use API key from session_state
     ))
     st.session_state.credits_ts = time.time()
 
@@ -613,13 +613,13 @@ with st.sidebar:
         # Implicit rerun on button click will show/hide the panel
 
     if st.session_state.get("settings_panel_open"):
-        st.markdown("<div class='settings-panel'>", unsafe_allow_html=True) # Start styled container
+        st.markdown("<div class='settings-panel'>", unsafe_allow_html=True)
         st.subheader("API Key Configuration")
         
         current_api_key_in_panel = st.session_state.get("openrouter_api_key")
         key_display = "Not set"
         
-        if current_api_key_in_panel and isinstance(current_api_key_in_panel, str):
+        if current_api_key_in_panel and isinstance(current_api_key_in_panel, str): # Check type
             key_display = f"••••••••{current_api_key_in_panel[-4:]}" if len(current_api_key_in_panel) > 8 else "••••"
         st.caption(f"Current key: {key_display}")
 
@@ -629,33 +629,35 @@ with st.sidebar:
         new_key_input = st.text_input(
             "Enter new OpenRouter API Key", type="password", key="api_key_settings_input", placeholder="sk-or-..."
         )
-        if st.button("Save API Key", key="save_api_key_settings_button"):
-            if new_key_input and new_key_input.startswith("sk-or-"):
+        if st.button("Save API Key", key="save_api_key_settings_button", use_container_width=True):
+            if is_api_key_valid(new_key_input):
                 st.session_state.openrouter_api_key = new_key_input
                 _save_app_config(new_key_input)
                 st.success("API Key saved!")
+                # Refresh credits immediately after saving a valid key
                 st.session_state.credits = dict(zip(("total","used","remaining"), get_credits()))
                 st.session_state.credits_ts = time.time()
                 st.session_state.settings_panel_open = False # Close panel on success
-                time.sleep(0.5) # Give user time to see success
+                time.sleep(0.5) # Give user time to see success message
                 st.rerun()
-            elif not new_key_input: st.warning("Please enter an API key.")
-            else: st.error("Invalid API key format. It should start with 'sk-or-'.")
+            elif not new_key_input:
+                st.warning("Please enter an API key.")
+            else: # new_key_input is present but invalid
+                st.error("Invalid API key format. It should start with 'sk-or-'.")
         
-        if st.button("Close Settings Panel", key="close_settings_panel_button", use_container_width=False): # Smaller close button
+        if st.button("Close Settings Panel", key="close_settings_panel_button", use_container_width=False):
             st.session_state.settings_panel_open = False
             st.rerun() 
         st.markdown("</div>", unsafe_allow_html=True) # End styled container
         st.divider() # Divider after settings panel if it was open
     # --- End Settings Panel ---
 
-    # Original Sidebar Content (Logo, Title, etc.)
-    # This ensures the logo and title are still present, below the settings button/panel
-    logo_title_cols = st.columns([1, 4]) # Adjust ratio as needed
+    # Logo and Title
+    logo_title_cols = st.columns([1, 4], gap="small") # Adjust ratio and gap as needed
     with logo_title_cols[0]:
         st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50)
     with logo_title_cols[1]:
-        st.title("OpenRouter Chat")
+        st.title("OpenRouter Chat") # CSS for h1 in sidebar will style this
     st.divider()
 
 
@@ -731,17 +733,16 @@ with st.sidebar:
     with st.expander("Account stats (credits)", expanded=False):
         if st.button("Refresh Credits", key="refresh_credits_button"):
             st.session_state.credits = dict(zip(
-                ("total","used","remaining"), get_credits()
+                ("total","used","remaining"), get_credits() # Uses session_state key
             ))
             st.session_state.credits_ts = time.time()
             st.rerun()
         
         current_api_key_for_credits = st.session_state.get("openrouter_api_key")
-        if tot is None:
-            if not is_api_key_valid(current_api_key_for_credits):
-                st.warning("Set a valid API Key to fetch credits (via ⚙️ Settings).")
-            else:
-                st.warning("Could not fetch credits. Check API key or network.")
+        if not is_api_key_valid(current_api_key_for_credits):
+            st.warning("Set a valid API Key to fetch credits (via ⚙️ Settings).")
+        elif tot is None: # Key is set, but credits couldn't be fetched
+            st.warning("Could not fetch credits. Check API key validity in OpenRouter or network connection.")
         else:
             st.markdown(f"**Purchased:** ${tot:.2f} cr")
             st.markdown(f"**Used:** ${used:.2f} cr")
@@ -754,7 +755,7 @@ with st.sidebar:
 
 # ────────────────────────── Main Chat Panel ─────────────────────
 current_sid = st.session_state.sid
-if current_sid not in sessions: # Should ideally not happen with startup SID management
+if current_sid not in sessions: 
     st.error("Selected chat session not found. Creating a new one.")
     current_sid = _new_sid()
     st.session_state.sid = current_sid
@@ -770,7 +771,7 @@ for msg_idx, msg in enumerate(chat_history):
         model_key_in_message = msg.get("model")
         if model_key_in_message == FALLBACK_MODEL_KEY: avatar_for_display = FALLBACK_MODEL_EMOJI
         elif model_key_in_message in EMOJI: avatar_for_display = EMOJI[model_key_in_message]
-        else: avatar_for_display = EMOJI.get("F", "🤖") # Default assistant avatar if key unknown
+        else: avatar_for_display = EMOJI.get("F", "🤖") 
 
     with st.chat_message(role, avatar=avatar_for_display):
         st.markdown(msg["content"])
@@ -807,14 +808,14 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}", d
             chosen_model_key_for_api = allowed_standard_models[0]
             logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
         else:
-            routed_key = route_choice(prompt, allowed_standard_models) # route_choice itself handles invalid API key
+            # route_choice handles invalid API key by returning fallback_choice
+            routed_key = route_choice(prompt, allowed_standard_models) 
             logging.info(f"Router selected model: '{routed_key}'.")
             chosen_model_key_for_api = routed_key
 
         # Check if router fell back or returned something not in MODEL_MAP
         if chosen_model_key_for_api not in MODEL_MAP:
             logging.warning(f"Chosen model key '{chosen_model_key_for_api}' is not in MODEL_MAP. Will use fallback.")
-            # This also covers cases where route_choice returned 'F' due to API key issues or routing failure
             st.info(f"{FALLBACK_MODEL_EMOJI} Model selection issue or routing fallback. Using free fallback model.")
             chosen_model_key_for_api = FALLBACK_MODEL_KEY
             model_id_to_use_for_api = FALLBACK_MODEL_ID
@@ -830,6 +831,7 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}", d
     with st.chat_message("assistant", avatar=avatar_for_response):
         response_placeholder, full_response_content = st.empty(), ""
         api_call_ok = True
+        # `streamed` will use the API key from session_state and handle related ValueErrors
         for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
             if error_message:
                 full_response_content = f"❗ **API Error**: {error_message}"
