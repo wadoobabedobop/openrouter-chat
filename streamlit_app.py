@@ -182,9 +182,17 @@ def streamed(model: str, messages: list, max_tokens_out: int):
             return
 
         for line in r.iter_lines():
-            if not line or not line.startswith(b"data: "):
+            if not line: # Skip empty lines
                 continue
-            data = line[6:].decode("utf-8").strip()
+            line_str = line.decode("utf-8") # Decode once
+            if line_str.startswith(": OPENROUTER PROCESSING"): # Handle OpenRouter specific ping
+                logging.info(f"OpenRouter PING: {line_str.strip()}") # Log it if you want
+                continue
+            if not line_str.startswith("data: "):
+                logging.warning(f"Unexpected non-event-stream line: {line}")
+                continue
+
+            data = line_str[6:].strip() # Use line_str
             if data == "[DONE]":
                 break
             try:
@@ -231,7 +239,8 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         {"role": "system", "content": "\n".join(system_lines)},
         {"role": "user",   "content": user_msg}
     ]
-    payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 5}
+    # Ensure max_tokens is set for the router call; a small value is fine.
+    payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10}
     try:
         r = api_post(payload_r)
         r.raise_for_status()
@@ -298,7 +307,6 @@ with st.sidebar:
         fill = int(pct * 100)
         color = "#4caf50" if pct > .5 else "#ff9800" if pct > .25 else "#f44336"
         
-        # Jar UI with CSS comments removed
         cols[i].markdown(f"""
             <div style="width:44px; margin:auto; text-align:center;">
               <div style="
@@ -353,7 +361,7 @@ with st.sidebar:
     # New Chat button
     if st.button("➕ New chat", use_container_width=True):
         st.session_state.sid = _new_sid()
-        st.experimental_rerun() 
+        st.rerun() # CHANGED from experimental_rerun
 
     # Chat session list
     st.subheader("Chats")
@@ -363,7 +371,7 @@ with st.sidebar:
         if st.button(title, key=f"session_button_{sid_key}", use_container_width=True):
             if st.session_state.sid != sid_key: 
                 st.session_state.sid = sid_key
-                st.experimental_rerun()
+                st.rerun() # CHANGED from experimental_rerun
 
     st.markdown("---")
 
@@ -394,7 +402,7 @@ with st.sidebar:
                 st.session_state.credits["used"],
                 st.session_state.credits["remaining"],
             )
-            st.experimental_rerun() 
+            st.rerun() # CHANGED from experimental_rerun
 
         if tot is None:
             st.warning("Could not fetch credits.")
@@ -416,17 +424,17 @@ if current_sid not in sessions:
     st.error("Selected chat session not found. Creating a new one.")
     current_sid = _new_sid()
     st.session_state.sid = current_sid
-    st.experimental_rerun()
+    st.rerun() # CHANGED from experimental_rerun
 
 
 chat_history = sessions[current_sid]["messages"] 
 
 # Display existing messages
-for msg in chat_history: 
+for msg_idx, msg in enumerate(chat_history): # Added enumerate for unique keys
     avatar_key = msg.get("model", "F") if msg["role"] == "assistant" else "user" 
     avatar_map = {"user": "👤", **EMOJI} 
-    avatar = avatar_map.get(avatar_key, "🤖") # This is approx line 316
-    with st.chat_message(msg["role"], avatar=avatar):                     
+    avatar = avatar_map.get(avatar_key, "🤖")
+    with st.chat_message(msg["role"], avatar=avatar): # key=f"msg_{current_sid}_{msg_idx}" can be added for stability
         st.markdown(msg["content"])                                       
 
 # Input box
@@ -466,7 +474,7 @@ if prompt := st.chat_input("Ask anything…"):
             sessions[current_sid]["title"] = _autoname(prompt)
     
     _save(SESS_FILE, sessions) 
-    st.experimental_rerun() 
+    st.rerun() # CHANGED from experimental_rerun
 
 
 # ───────────────────────── Self-Relaunch ──────────────────────
@@ -478,8 +486,8 @@ if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
         sys.executable, "-m", "streamlit", "run", __file__,
         "--server.port", port, 
         "--server.address", "0.0.0.0",
-        "--server.runOnSave", "false", 
-        "--client.toolbarMode", "minimal" 
+        # "--server.runOnSave", "false", # Usually not needed for deployed apps
+        # "--client.toolbarMode", "minimal" 
     ]
     logging.info(f"Relaunching with Streamlit: {' '.join(cmd)}")
     subprocess.run(cmd, check=False)
