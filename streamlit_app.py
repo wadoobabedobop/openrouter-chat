@@ -12,14 +12,14 @@ OpenRouter Streamlit Chat — Full Edition
 • In-app API Key configuration (via Settings panel or initial setup)
 """
 
-# ------------------------- Imports ------------------------- # USE STANDARD HYPHENS AND '#' FOR COMMENTS
+# ------------------------- Imports ------------------------- #
 import json, logging, os, sys, subprocess, time, requests
 from datetime import datetime, date
 from pathlib import Path
 from zoneinfo import ZoneInfo # Python 3.9+
 import streamlit as st
 
-# -------------------------- Configuration --------------------------- # USE STANDARD HYPHENS AND '#'
+# -------------------------- Configuration --------------------------- #
 # OPENROUTER_API_KEY  is now managed via app_config.json and st.session_state
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT     = 120
@@ -391,192 +391,206 @@ def get_credits():
 def load_custom_css():
     css = """
     <style>
-        /* General Styles */
+        /* --- General & Variables --- */
+        :root {
+            --border-radius-sm: 4px;
+            --border-radius-md: 8px;
+            --border-radius-lg: 12px;
+            --spacing-sm: 0.5rem;
+            --spacing-md: 1rem;
+            --spacing-lg: 1.5rem;
+            --shadow-light: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            /* --divider-color will be inherited from Streamlit's theme or defaults */
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
         }
-        /* Sidebar Styling */
+
+        /* --- Sidebar Styling --- */
         [data-testid="stSidebar"] {
-            background-color: var(--secondary-background-color); 
-            padding: 1.5rem 1rem;
+            background-color: var(--secondaryBackgroundColor); /* Use theme variable */
+            padding: var(--spacing-lg) var(--spacing-md);
+            border-right: 1px solid var(--divider-color, #262730); /* Add a subtle border */
         }
-        /* Sidebar Image (Logo) */
-        [data-testid="stSidebar"] .stImage { margin-right: 12px; }
-        [data-testid="stSidebar"] .stImage > img {
+        [data-testid="stSidebar"] .stImage > img { /* Sidebar Logo */
             border-radius: 50%;
-            box-shadow: 0 2px 6px var(--shadow); 
-            width: 50px !important; height: 50px !important;
+            box-shadow: var(--shadow-light);
+            width: 48px !important; height: 48px !important;
+            margin-right: var(--spacing-sm); 
         }
-        /* Sidebar Title */
-        [data-testid="stSidebar"] h1 { 
-            font-size: 1.6rem !important; color: var(--primary); 
-            font-weight: 600; margin-bottom: 0; 
-            padding-top: 0.3rem; 
+        [data-testid="stSidebar"] h1 { /* Sidebar Title */
+            font-size: 1.5rem !important; color: var(--primaryColor); /* Theme variable */
+            font-weight: 600; margin-bottom: 0;
+            padding-top: 0.2rem;
         }
-        /* Sidebar Subheaders */
-        [data-testid="stSidebar"] h3 { 
-            font-size: 0.9rem !important; text-transform: uppercase; font-weight: 600;
-            color: var(--text-color-secondary); 
-            margin-top: 1.5rem; margin-bottom: 0.75rem;
+        [data-testid="stSidebar"] .stButton > button { /* General Sidebar Buttons */
+            border-radius: var(--border-radius-md);
+            border: 1px solid var(--divider-color, #333); 
+            padding: 0.6em 1em; font-size: 0.9em; 
+            background-color: transparent; 
+            color: var(--textColor);
+            transition: background-color 0.2s, border-color 0.2s;
+            width: 100%; margin-bottom: var(--spacing-sm); text-align: left;
+            font-weight: 500;
         }
-        /* Button Styling (General for Sidebar - for session list) */
-        [data-testid="stSidebar"] .stButton > button {
-            border-radius: 8px; border: 1px solid var(--border-color);
-            padding: 0.5em 1em; font-size: 0.95em; font-weight: 500;
-            font-family: inherit; background-color: var(--secondary-background-color);
-            color: var(--text-color); cursor: pointer;
-            transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
-            width: 100%; margin-bottom: 0.3rem; text-align: left;
+        [data-testid="stSidebar"] .stButton > button:hover:not(:disabled) { /* Don't apply hover to disabled (active) */
+            border-color: var(--primaryColor);
+            background-color: color-mix(in srgb, var(--primaryColor) 15%, transparent); 
         }
-        [data-testid="stSidebar"] .stButton > button:hover {
-            border-color: var(--primary);
-            background-color: color-mix(in srgb, var(--primary) 10%, var(--secondary-background-color));
-            box-shadow: 0 1px 3px var(--shadow);
+        /* Style for active (disabled) chat buttons */
+        [data-testid="stSidebar"] .stButton > button:disabled { 
+            opacity: 1.0; /* Ensure it's fully visible */
+            cursor: default; /* Default cursor for active item */
+            background-color: color-mix(in srgb, var(--primaryColor) 25%, transparent) !important;
+            border-left: 3px solid var(--primaryColor) !important;
+            border-top-color: var(--divider-color, #333) !important; /* Keep other borders consistent */
+            border-right-color: var(--divider-color, #333) !important;
+            border-bottom-color: var(--divider-color, #333) !important;
+            font-weight: 600;
+            color: var(--textColor); /* Ensure text color is not dimmed */
         }
-         [data-testid="stSidebar"] .stButton > button:disabled { opacity: 0.6; cursor: not-allowed; }
-       /* Specific "New Chat" button - targeted by its key */
+
+        /* Specific "New Chat" button */
         [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button {
-             background-color: var(--primary); color: white; border-color: var(--primary);
+            background-color: var(--primaryColor); color: white;
+            border-color: var(--primaryColor);
+            font-weight: 600;
         }
         [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:hover {
-             filter: brightness(90%); border-color: var(--primary);
+            background-color: color-mix(in srgb, var(--primaryColor) 85%, black);
+            border-color: color-mix(in srgb, var(--primaryColor) 85%, black);
+        }
+        /* Disabled state for "New Chat" specifically if it's truly blank */
+        [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:disabled {
+            background-color: var(--primaryColor) !important; /* Keep its primary color */
+            color: white !important;
+            border-color: var(--primaryColor) !important;
+            opacity: 0.6 !important; /* Dim it slightly like other disabled buttons */
+            cursor: not-allowed !important;
+            border-left: 1px solid var(--primaryColor) !important; /* Reset active chat border */
+        }
+
+
+        /* Sidebar Subheaders (e.g., "CHATS", "MODEL-ROUTING MAP") */
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] .stSubheader { 
+            font-size: 0.8rem !important; text-transform: uppercase; font-weight: 700;
+            color: var(--text-color-secondary, #A0A0A0); 
+            margin-top: var(--spacing-lg); margin-bottom: var(--spacing-sm);
+            letter-spacing: 0.05em;
         }
         
-        /* OLD Token Jar Styling - Kept for reference if needed, but replaced */
-        /*
-        .token-jar-container {
-            width: 100%; max-width: 55px; margin: 0 auto 0.5rem auto;
-            text-align: center; font-family: inherit;
+        /* --- Sidebar Expanders --- */
+        [data-testid="stSidebar"] [data-testid="stExpander"] {
+            border: 1px solid var(--divider-color, #262730);
+            border-radius: var(--border-radius-md);
+            background-color: transparent; /* Make it blend better, less boxy */
+            margin-bottom: var(--spacing-md);
         }
-        .token-jar {
-            height: 60px; border: 1px solid var(--border-color); border-radius: 8px;
-            background: var(--secondary-background-color); position: relative;
-            overflow: hidden;
-            box-shadow: inset 0 1px 2px var(--shadow-sm, rgba(0,0,0,0.05));
-            margin-bottom: 4px;
-        }
-        .token-jar-fill {
-            position: absolute; bottom: 0; width: 100%;
-            transition: height 0.3s ease-in-out, background-color 0.3s ease-in-out;
-        }
-        .token-jar-emoji { position: absolute; top: 6px; width: 100%; font-size: 18px; line-height: 1;}
-        .token-jar-key {
-             position: absolute; bottom: 6px; width: 100%; font-size: 11px;
-             font-weight: 600; color: var(--text-color); opacity: 0.8; line-height: 1;
-        }
-        .token-jar-remaining {
-            display: block; margin-top: 2px; font-size: 11px; font-weight: 600;
-             color: var(--text-color); opacity: 0.9; line-height: 1;
-        }
-        */
-
-        /* NEW Compact Quota Bar Styling (within Expander) */
-        .compact-quota-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-            font-family: inherit;
-            padding: 0px 2px; /* Minimal horizontal padding for content inside column */
-        }
-        .cq-info { /* Emoji and Key */
-            font-size: 0.75em; /* Smaller text for compactness */
-            margin-bottom: 4px; 
-            line-height: 1.1;
-            white-space: nowrap; /* Prevent emoji and key from wrapping */
-            color: var(--text-color); /* Ensure visibility against sidebar background */
-        }
-        .cq-bar-track {
-            width: 100%; /* Bar track takes full width of its column cell */
-            height: 10px; /* Slimmer but visible bar height */
-            background-color: var(--secondary-background-color); /* Or a slightly darker shade like color-mix(in srgb, var(--text-color) 5%, transparent) */
-            border: 1px solid var(--border-color);
-            border-radius: 5px; /* Rounded track */
-            overflow: hidden; /* Clip the fill div */
-            margin-bottom: 4px;
-            box-shadow: inset 0 1px 1px var(--shadow-sm, rgba(0,0,0,0.03)); /* Subtle inner shadow */
-        }
-        .cq-bar-fill {
-            height: 100%;
-            border-radius: 4px; /* Fill slightly less rounded or match track */
-            transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out; /* Smooth transitions */
-        }
-        .cq-value { /* Remaining count */
-            font-size: 0.75em; /* Smaller text */
-            font-weight: bold;
-            line-height: 1;
-        }
-
-        /* Styling the Expander title to look more like a subheader */
         [data-testid="stSidebar"] [data-testid="stExpander"] summary {
-            padding-top: 0.2rem !important; /* Adjust default summary padding */
-            padding-bottom: 0.2rem !important;
-        }
-
-        [data-testid="stSidebar"] [data-testid="stExpander"] summary p { /* Target the <p> tag where Streamlit puts the label */
-            font-size: 0.9rem !important; 
+            padding: 0.6rem var(--spacing-md) !important;
+            font-size: 0.85rem !important;
+            font-weight: 600 !important;
             text-transform: uppercase;
-            font-weight: 600 !important; 
-            color: var(--text-color-secondary) !important; /* Match st.subheader style */
-            margin-bottom: 0 !important; /* Remove default paragraph margin */
+            color: var(--textColor) !important;
+            border-bottom: 1px solid var(--divider-color, #262730); 
+            border-top-left-radius: var(--border-radius-md); /* Match expander border */
+            border-top-right-radius: var(--border-radius-md);
         }
-
-        /* Reduce padding inside the quota expander's content area for compactness */
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
+            background-color: color-mix(in srgb, var(--textColor) 5%, transparent);
+        }
         [data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] {
-            padding-top: 0.6rem !important; /* Space between title and content */
+            padding: var(--spacing-sm) var(--spacing-md) !important;
+            background-color: var(--secondaryBackgroundColor); /* Content area slightly different */
+            border-bottom-left-radius: var(--border-radius-md);
+            border-bottom-right-radius: var(--border-radius-md);
+        }
+        /* Quota items specific padding */
+        [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stExpanderDetails"] {
+            padding-top: 0.6rem !important;
             padding-bottom: 0.2rem !important;
-            padding-left: 0.1rem !important; /* Minimal side padding to maximize space for columns */
+            padding-left: 0.1rem !important;
             padding-right: 0.1rem !important;
         }
-
-        /* Reduce gap between columns if st.columns adds too much by default */
-        [data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] div[data-testid="stHorizontalBlock"] {
-            gap: 0.25rem !important; /* Tighter gap between quota items */
+        [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stHorizontalBlock"] {
+            gap: 0.25rem !important;
         }
 
+        /* Compact Quota Bar Styling */
+        .compact-quota-item {
+            display: flex; flex-direction: column; align-items: center;
+            text-align: center; padding: 0px 4px; 
+        }
+        .cq-info {
+            font-size: 0.7rem; margin-bottom: 3px; line-height: 1.1;
+            white-space: nowrap; color: var(--textColor);
+        }
+        .cq-bar-track {
+            width: 100%; height: 8px; 
+            background-color: color-mix(in srgb, var(--textColor) 10%, transparent); 
+            border: 1px solid var(--divider-color, #333);
+            border-radius: var(--border-radius-sm); overflow: hidden; margin-bottom: 3px;
+        }
+        .cq-bar-fill {
+            height: 100%; border-radius: var(--border-radius-sm);
+            transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out;
+        }
+        .cq-value { font-size: 0.7rem; font-weight: bold; line-height: 1; }
 
-        /* Expander Styling (General) */
-       .stExpander {
-            border: 1px solid var(--border-color); border-radius: 8px;
-            margin-bottom: 1rem; background-color: var(--background-color-primary);
+        /* --- Settings Panel (in Sidebar) --- */
+        .settings-panel { /* This is the div wrapper in Python, not an expander */
+            border: 1px solid var(--divider-color, #333);
+            border-radius: var(--border-radius-md);
+            padding: var(--spacing-md);
+            margin-top: var(--spacing-sm); margin-bottom: var(--spacing-md);
+            background-color: color-mix(in srgb, var(--backgroundColor) 50%, var(--secondaryBackgroundColor));
         }
-       .stExpander header { /* This might conflict with the summary p styling above, ensure specificity or remove if redundant */
-            font-weight: 600; font-size: 0.95rem; padding: 0.6rem 1rem !important;
-            background-color: var(--secondary-background-color);
-            border-bottom: 1px solid var(--border-color);
-            border-top-left-radius: 7px; border-top-right-radius: 7px; color: var(--text-color);
-        }
-       .stExpander div[data-testid="stExpanderDetails"] { /* Also potentially conflicting, ensure one source of truth for padding */
-             padding: 0.75rem 1rem; background-color: var(--background-color-primary); 
+        .settings-panel .stTextInput input { 
+            border-color: var(--divider-color, #444) !important;
         }
 
-        /* Chat Message Styling */
-        [data-testid="stChatMessage"] {
-            border-radius: 12px; padding: 14px 20px; margin-bottom: 12px;
-            box-shadow: 0 2px 5px var(--shadow); border: 1px solid transparent;
+        /* --- Main Chat Area Styling --- */
+        [data-testid="stChatInputContainer"] { /* Target the container of the chat input */
+            background-color: var(--secondaryBackgroundColor);
+            border-top: 1px solid var(--divider-color, #262730);
+            padding: var(--spacing-sm) var(--spacing-md); /* Add some padding around the input itself */
         }
-        html[data-theme="light"] [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
-            background-color: #E3F2FD; border-left: 3px solid #1E88E5; color: #0D47A1;
+        [data-testid="stChatInput"] textarea { /* Actual input field (is a textarea) */
+            border-color: var(--divider-color, #444) !important; 
+            border-radius: var(--border-radius-md) !important;
+            background-color: var(--backgroundColor) !important; /* Match app background or slightly lighter */
+            color: var(--textColor) !important;
         }
-        html[data-theme="dark"] [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
-            background-color: color-mix(in srgb, var(--primary) 15%, var(--secondary-background-color));
-            border-left: 3px solid var(--primary); color: var(--text-color);
+        [data-testid="stChatMessage"] { /* Chat Message Bubbles */
+            border-radius: var(--border-radius-lg);
+            padding: var(--spacing-md) 1.25rem; 
+            margin-bottom: var(--spacing-md);
+            box-shadow: var(--shadow-light);
+            border: 1px solid transparent;
+            max-width: 85%; /* Prevent bubbles from taking full width */
         }
-         html[data-theme="light"] [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
-             background-color: #f9f9f9; border-left: 3px solid #757575; color: var(--color-gray-80, #333);
-         }
-        html[data-theme="dark"] [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
-            background-color: var(--secondary-background-color);
-             border-left: 3px solid var(--color-gray-60, #888); color: var(--text-color);
+        /* User Message */
+        [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
+            background-color: var(--primaryColor);
+            color: white;
+            margin-left: auto; /* Align user messages to the right */
+            border-top-right-radius: var(--border-radius-sm); 
         }
+        /* Assistant Message */
+        [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
+            background-color: var(--secondaryBackgroundColor);
+            color: var(--textColor);
+            margin-right: auto; /* Align assistant messages to the left */
+            border-top-left-radius: var(--border-radius-sm); 
+        }
+        
+        /* Horizontal Rule / Divider */
         hr {
-          margin-top: 1.5rem; margin-bottom: 1.5rem; border: 0;
-          border-top: 1px solid var(--border-color);
-        }
-       .settings-panel {
-            border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem;
-            margin-top: 0.5rem; margin-bottom: 1rem;
-            background-color: var(--secondary-background-color);
+            margin-top: var(--spacing-md); margin-bottom: var(--spacing-md); border: 0;
+            border-top: 1px solid var(--divider-color, #262730);
         }
     </style>
     """
@@ -656,7 +670,7 @@ if app_requires_api_key_setup:
 else:
     st.set_page_config(
         page_title="OpenRouter Chat",
-        layout="wide",
+        layout="wide", # Changed to wide, chat apps usually benefit from this
         initial_sidebar_state="expanded"
     )
     load_custom_css()
@@ -695,23 +709,27 @@ else:
         credits_data = get_credits() 
         
         if st.session_state.get("api_key_auth_failed"):
-            st.error("API Key authentication failed. Please update your API Key in ⚙️ Settings.")
-            st.rerun() 
-            st.stop() 
+            # This error will be shown in the main panel if chat interaction triggers it.
+            # For now, just log it here, the main panel will handle user-facing error.
+            logging.error("API Key authentication failed during credit refresh.")
+            # No st.rerun() or st.stop() here, let the main flow decide.
         
         if credits_data != (None, None, None):
             st.session_state.credits["total"], st.session_state.credits["used"], st.session_state.credits["remaining"] = credits_data
             st.session_state.credits_ts = time.time()
         else:
-            st.session_state.credits_ts = time.time() 
+            st.session_state.credits_ts = time.time() # Update timestamp even on failure to prevent rapid retries
             if not all(isinstance(st.session_state.credits.get(k), (int,float)) for k in ["total", "used", "remaining"]):
                  st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0} 
 
 
     # ------------------------- Sidebar -----------------------------
     with st.sidebar:
-        if st.button("⚙️ Settings", key="toggle_settings_button", use_container_width=True):
-            st.session_state.settings_panel_open = not st.session_state.get("settings_panel_open", False)
+        # Settings Toggle Button
+        settings_button_label = "⚙️ Close Settings" if st.session_state.settings_panel_open else "⚙️ Settings"
+        if st.button(settings_button_label, key="toggle_settings_button_sidebar", use_container_width=True):
+            st.session_state.settings_panel_open = not st.session_state.settings_panel_open
+            st.rerun() # Rerun to reflect button label change and panel visibility
 
         if st.session_state.get("settings_panel_open"):
             st.markdown("<div class='settings-panel'>", unsafe_allow_html=True)
@@ -725,7 +743,6 @@ else:
             else:
                  key_display = "Current key: Not set"
             st.caption(key_display)
-
 
             new_key_input_sidebar = st.text_input(
                 "Enter new OpenRouter API Key (optional)", type="password", key="api_key_sidebar_input", placeholder="sk-or-..."
@@ -742,28 +759,25 @@ else:
                     if st.session_state.api_key_auth_failed:
                         st.error("New API Key failed authentication. Further actions may require re-setup.")
                     elif credits_data == (None,None,None):
-                        st.warning("Could not validate the new API key (network or other API issue). Key is saved, but functionality may be affected.")
+                        st.warning("Could not validate the new API key. Key is saved, but functionality may be affected.")
                     else: 
                         st.success("New API Key saved and validated!")
                         st.session_state.credits["total"],st.session_state.credits["used"],st.session_state.credits["remaining"] = credits_data
                         st.session_state.credits_ts = time.time()
                     
-                    st.session_state.settings_panel_open = False 
+                    st.session_state.settings_panel_open = False # Close panel on save
                     time.sleep(0.8) 
                     st.rerun() 
                 elif not new_key_input_sidebar: 
                     st.warning("API Key field is empty. No changes made.")
                 else: 
                     st.error("Invalid API key format. It must start with 'sk-or-'.")
-            
-            if st.button("Close Settings", key="close_settings_panel_button_sidebar"):
-                st.session_state.settings_panel_open = False
-                st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
-            st.divider()
+        st.divider()
+
 
         logo_title_cols = st.columns([1, 4], gap="small")
-        with logo_title_cols[0]: st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50)
+        with logo_title_cols[0]: st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=48) # Adjusted width
         with logo_title_cols[1]: st.title("OpenRouter Chat")
         st.divider()
 
@@ -797,14 +811,14 @@ else:
                             left_display = "0" 
 
                         if pct_float > 0.5: 
-                            bar_color = "#4caf50" 
+                            bar_color = "#4caf50" # Green
                         elif pct_float > 0.25: 
-                            bar_color = "#ffc107" 
+                            bar_color = "#ffc107" # Amber
                         else: 
-                            bar_color = "#f44336" 
+                            bar_color = "#f44336" # Red
                         
                         if is_unlimited: 
-                            bar_color = "var(--primary)" 
+                            bar_color = "var(--primaryColor)" # Use theme primary for unlimited
 
                         emoji_char = EMOJI.get(m_key, "❔") 
                         
@@ -839,9 +853,11 @@ else:
             if sid_key not in sessions: continue 
             title = sessions[sid_key].get("title", "Untitled")
             display_title = title[:25] + ("…" if len(title) > 25 else "")
-            if st.session_state.sid == sid_key: display_title = f"🔹 {display_title}"
-            if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True):
-                if st.session_state.sid != sid_key:
+            is_active_chat = st.session_state.sid == sid_key
+            
+            # The CSS will style disabled buttons to look "active"
+            if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True, disabled=is_active_chat):
+                if not is_active_chat: # This condition is technically redundant due to disabled state, but good for clarity
                     _delete_unused_blank_sessions(keep_sid=sid_key)
                     st.session_state.sid = sid_key
                     _save(SESS_FILE, sessions) 
@@ -858,7 +874,7 @@ else:
         st.divider()
 
         with st.expander("Account stats (credits)", expanded=False):
-            if st.button("Refresh Credits", key="refresh_credits_button"):
+            if st.button("Refresh Credits", key="refresh_credits_button_sidebar"): # Changed key to avoid conflict
                  with st.spinner("Refreshing credits..."): 
                     credits_data = get_credits() 
                  if not st.session_state.get("api_key_auth_failed"): 
@@ -868,6 +884,8 @@ else:
                         st.success("Credits refreshed!")
                     else:
                         st.warning("Could not refresh credits (network or API issue).")
+                 else:
+                     st.error("API Key authentication failed. Cannot refresh credits.")
                  st.rerun() 
             
             tot = st.session_state.credits.get("total")
@@ -898,81 +916,78 @@ else:
     
     for msg in chat_history:
         role = msg.get("role", "assistant") 
-        avatar = "👤" if role == "user" else None 
+        avatar_char = "👤" if role == "user" else None # Avatar for user
 
         if role == "assistant":
             m_key = msg.get("model")
             if m_key == FALLBACK_MODEL_KEY:
-                avatar = FALLBACK_MODEL_EMOJI
+                avatar_char = FALLBACK_MODEL_EMOJI
             elif m_key in EMOJI:
-                avatar = EMOJI[m_key]
+                avatar_char = EMOJI[m_key]
             else: 
-                avatar = "🤖" 
+                avatar_char = "🤖" # Default assistant avatar
         
-        with st.chat_message(role, avatar=avatar): 
+        with st.chat_message(role, avatar=avatar_char): 
              st.markdown(msg.get("content", "*empty message*")) 
 
     if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
         chat_history.append({"role":"user","content":prompt})
-        with st.chat_message("user", avatar="👤"): st.markdown(prompt)
+        with st.chat_message("user", avatar="👤"): st.markdown(prompt) # Ensure user avatar here too
 
         if not is_api_key_valid(st.session_state.get("openrouter_api_key")) or st.session_state.get("api_key_auth_failed"):
             st.error("API Key is not configured or has failed. Please set it up in ⚙️ Settings.")
-            st.rerun()
-            st.stop()
-
-        allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0] 
-        use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (
-            False, None, None, None, "🤖" 
-        )
-        
-        if not allowed_standard_models:
-            logging.info(f"Using fallback (all quotas used): {FALLBACK_MODEL_ID}")
-            st.info(f"{FALLBACK_MODEL_EMOJI} Daily quotas for standard models exhausted. Using free fallback.")
-            use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
+            # No st.rerun() here, let the error message persist until user fixes it.
+            # st.stop() might be too abrupt; the error message should be enough warning.
         else:
-            routed_key = route_choice(prompt, allowed_standard_models)
-            if st.session_state.get("api_key_auth_failed"):
-                 st.error("API Authentication failed during model routing. Please check your API Key in Settings.")
-                 st.rerun() 
-                 st.stop()
-
-            if routed_key not in MODEL_MAP or routed_key not in allowed_standard_models: 
-                logging.warning(f"Router chose '{routed_key}' (invalid or no quota). Using fallback {FALLBACK_MODEL_ID}.")
-                st.warning(f"{FALLBACK_MODEL_EMOJI} Model routing issue or chosen model '{routed_key}' has no quota. Using free fallback.")
-                use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
-            else: 
-                chosen_model_key = routed_key
-                model_id_to_use = MODEL_MAP[chosen_model_key]
-                max_tokens_api = MAX_TOKENS[chosen_model_key]
-                avatar_resp = EMOJI.get(chosen_model_key, "🤖")
-        
-        with st.chat_message("assistant", avatar=avatar_resp):
-            response_placeholder, full_response = st.empty(), ""
-            api_call_ok = True
+            allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0] 
+            use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (
+                False, None, None, None, "🤖" 
+            )
             
-            for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
-                if st.session_state.get("api_key_auth_failed"): 
-                    full_response = "❗ **API Authentication Error**: Your API Key failed. Please update it in ⚙️ Settings."
-                    api_call_ok = False; break
-                if err_msg:
-                    full_response = f"❗ **API Error**: {err_msg}"
-                    api_call_ok = False; break
-                if chunk: 
-                   full_response += chunk
-                   response_placeholder.markdown(full_response + "▌")
-                   
-            response_placeholder.markdown(full_response) 
+            if not allowed_standard_models:
+                logging.info(f"Using fallback (all quotas used): {FALLBACK_MODEL_ID}")
+                st.info(f"{FALLBACK_MODEL_EMOJI} Daily quotas for standard models exhausted. Using free fallback.")
+                use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
+            else:
+                routed_key = route_choice(prompt, allowed_standard_models)
+                if st.session_state.get("api_key_auth_failed"): # Check after routing attempt
+                     st.error("API Authentication failed during model routing. Please check your API Key in Settings.")
+                     # No rerun, let error show.
+                elif routed_key not in MODEL_MAP or routed_key not in allowed_standard_models: 
+                    logging.warning(f"Router chose '{routed_key}' (invalid or no quota). Using fallback {FALLBACK_MODEL_ID}.")
+                    st.warning(f"{FALLBACK_MODEL_EMOJI} Model routing issue or chosen model '{routed_key}' has no quota. Using free fallback.")
+                    use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
+                else: 
+                    chosen_model_key = routed_key
+                    model_id_to_use = MODEL_MAP[chosen_model_key]
+                    max_tokens_api = MAX_TOKENS[chosen_model_key]
+                    avatar_resp = EMOJI.get(chosen_model_key, "🤖")
+            
+            with st.chat_message("assistant", avatar=avatar_resp):
+                response_placeholder, full_response = st.empty(), ""
+                api_call_ok = True
+                
+                for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
+                    if st.session_state.get("api_key_auth_failed"): # Check during streaming
+                        full_response = "❗ **API Authentication Error**: Your API Key failed. Please update it in ⚙️ Settings."
+                        api_call_ok = False; break
+                    if err_msg:
+                        full_response = f"❗ **API Error**: {err_msg}"
+                        api_call_ok = False; break
+                    if chunk: 
+                       full_response += chunk
+                       response_placeholder.markdown(full_response + "▌")
+                       
+                response_placeholder.markdown(full_response) 
 
-        chat_history.append({"role":"assistant","content":full_response,"model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY}) 
-        
-        if api_call_ok:
-            if not use_fallback: 
-               record_use(chosen_model_key) 
-            if sessions[current_sid]["title"] == "New chat" and prompt: 
-               sessions[current_sid]["title"] = _autoname(prompt)
-               _delete_unused_blank_sessions(keep_sid=current_sid) 
-        
-        _save(SESS_FILE, sessions) 
-        
-        st.rerun()
+            chat_history.append({"role":"assistant","content":full_response,"model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY}) 
+            
+            if api_call_ok:
+                if not use_fallback and chosen_model_key: # Ensure chosen_model_key is not None
+                   record_use(chosen_model_key) 
+                if sessions[current_sid]["title"] == "New chat" and prompt: 
+                   sessions[current_sid]["title"] = _autoname(prompt)
+                   _delete_unused_blank_sessions(keep_sid=current_sid) 
+            
+            _save(SESS_FILE, sessions) 
+            st.rerun() # Rerun to update sidebar (quota, possibly new chat title)
