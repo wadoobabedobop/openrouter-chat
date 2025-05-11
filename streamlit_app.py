@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenRouter Streamlit Chat — Full Edition
+OpenRouter Streamlit Chat — Full Edition (Redesigned UI)
 • Persistent chat sessions
 • Daily/weekly/monthly quotas
 • Pretty ‘token-jar’ gauges (fixed at top)
@@ -282,240 +282,321 @@ def get_credits():
 def load_custom_css():
     css = """
     <style>
-        /* General Styles */
+        /* General Styles - Inspired by modern chat UIs */
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+            color: var(--text-color); /* Ensure text color respects theme */
         }
 
-        /* Sidebar Styling */
-        [data-testid="stSidebar"] {
-            background-color: var(--secondary-background-color); /* Adapts to theme */
-            padding: 1.5rem 1rem;
+        /* Main app container styling for better background consistency */
+        [data-testid="stAppViewContainer"] > .main > .block-container {
+            padding-top: 2rem; 
+            padding-bottom: 2rem;
+            /* max-width: 900px; /* Optional: Constrain main content width */
         }
+        /* Attempt to make the main area background consistent for dark themes */
+        html[data-theme="dark"] [data-testid="stAppViewContainer"],
+        html[data-theme="dark"] .main {
+             /* background-color: #171717; /* A very dark grey, adjust if needed or remove if Streamlit's default is fine */
+        }
+
+
+        /* Sidebar Styling - More aligned with mockups */
+        [data-testid="stSidebar"] {
+            background-color: #1F2937; /* Darker sidebar for dark theme */
+            padding: 1.5rem 1rem;
+            border-right: 1px solid #374151; /* Darker border for dark theme */
+        }
+        html[data-theme="light"] [data-testid="stSidebar"] {
+            background-color: #F9FAFB; /* Light grey for light theme sidebar */
+            border-right: 1px solid var(--border-color);
+        }
+
 
         /* Sidebar Header (Logo + Title) */
-        [data-testid="stSidebar"] > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) {
+        [data-testid="stSidebar"] > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) { 
             display: flex !important;
             align-items: center !important;
+            gap: 12px; 
             margin-bottom: 1.5rem !important;
             padding-bottom: 1rem;
-            border-bottom: 1px solid var(--border-color); /* Theme-aware border */
+            border-bottom: 1px solid color-mix(in srgb, var(--text-color) 20%, transparent);
         }
-        [data-testid="stSidebar"] .stImage {
-            margin-right: 12px;
+        [data-testid="stSidebar"] .stImage > img { /* Your logo */
+            border-radius: 8px; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            width: 40px !important; 
+            height: 40px !important;
         }
-        [data-testid="stSidebar"] .stImage > img {
-            border-radius: 50%;
-            box-shadow: 0 2px 6px var(--shadow); /* Theme-aware shadow */
-            width: 50px !important;
-            height: 50px !important;
-        }
-        [data-testid="stSidebar"] h1 { /* Targets st.title in sidebar */
-            font-size: 1.6rem !important;
-            color: var(--primary); /* Use Streamlit's primary color */
+        [data-testid="stSidebar"] h1 { /* Targets st.title in sidebar - "OpenRouter Chat" */
+            font-size: 1.4rem !important; 
+            color: var(--text-color); 
             font-weight: 600;
             margin-bottom: 0;
         }
 
-        /* Sidebar Subheaders */
-        [data-testid="stSidebar"] h3 { /* Targets st.subheader */
-            font-size: 0.9rem !important;
+        /* Sidebar Subheaders ("Daily Jars", "Chats", etc.) */
+        [data-testid="stSidebar"] h3 {
+            font-size: 0.8rem !important; /* Slightly smaller */
             text-transform: uppercase;
             font-weight: 600;
-            color: var(--text-color-secondary); /* Adapts to theme, more subtle */
-            margin-top: 1.5rem;
-            margin-bottom: 0.75rem;
+            color: var(--text-color-secondary);
+            margin-top: 1.8rem; /* Adjusted spacing */
+            margin-bottom: 0.6rem;
         }
 
-
-        /* Button Styling (General for Sidebar - for session list) */
+        /* Sidebar Buttons (Session list, etc.) */
         [data-testid="stSidebar"] .stButton > button {
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-            padding: 0.5em 1em;
-            font-size: 0.95em;
+            border-radius: 6px; 
+            border: none; 
+            padding: 0.6em 0.8em; 
+            font-size: 0.9em;
             font-weight: 500;
-            font-family: inherit;
-            background-color: var(--secondary-background-color);
-            color: var(--text-color);
-            cursor: pointer;
-            transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+            background-color: transparent; 
+            color: var(--text-color-secondary); 
+            transition: background-color 0.2s, color 0.2s;
             width: 100%;
-            margin-bottom: 0.3rem;
+            margin-bottom: 0.2rem;
             text-align: left;
+            display: flex; 
+            align-items: center;
         }
         [data-testid="stSidebar"] .stButton > button:hover {
-            border-color: var(--primary);
-            /* For hover, slightly change background. In dark mode, this might be lighter. */
-            /* Using a semi-transparent overlay of primary color might work too. */
-            background-color: color-mix(in srgb, var(--primary) 10%, var(--secondary-background-color));
-            box-shadow: 0 1px 3px var(--shadow);
+            background-color: color-mix(in srgb, var(--primary-color, #71717A) 15%, transparent);
+            color: var(--primary-color, #FAFAFA);
+        }
+        html[data-theme="light"] [data-testid="stSidebar"] .stButton > button:hover {
+            color: var(--primary-color, #1E40AF);
         }
         [data-testid="stSidebar"] .stButton > button:focus,
         [data-testid="stSidebar"] .stButton > button:focus-visible {
-            outline: 2px auto var(--primary);
-            outline-offset: 2px;
+            outline: 1px auto var(--primary-color);
+            outline-offset: 1px;
         }
-        /* Streamlit handles disabled button styles fairly well by default.
-           If more customization is needed, target with html[data-theme='dark/light'] */
-        [data-testid="stSidebar"] .stButton > button:disabled {
-            /* background-color: var(--color-gray-20); For light theme */
-            /* color: var(--text-color-tertiary); */
-            /* border-color: var(--color-gray-30); */
-            opacity: 0.6; /* General approach for disabled */
-            cursor: not-allowed;
+        /* Active session button styling for the 🔹 indicator */
+        [data-testid="stSidebar"] .stButton > button:has(span:contains("🔹")) { /* If you wrap the title in a span */
+             background-color: color-mix(in srgb, var(--primary-color, #71717A) 20%, transparent);
+             color: var(--primary-color, #FAFAFA);
+             font-weight: 600;
         }
+         html[data-theme="light"] [data-testid="stSidebar"] .stButton > button:has(span:contains("🔹")) {
+             color: var(--primary-color, #1E40AF);
+         }
 
-        /* Specific "New Chat" button - targeted by its key */
+
+        /* "New Chat" Button - Make it stand out */
         [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button {
-             background-color: var(--primary);
-             color: white; /* White text on primary color is usually fine */
-             border-color: var(--primary);
+             background-color: var(--primary-color, #0EA5E9); /* Default to a blue if not set */
+             color: white; 
+             font-weight: 600;
+        }
+        html[data-theme="dark"] [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button {
+             /* color: var(--text-color-on-primary, white); */
         }
         [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:hover {
-             /* background-color: #1565C0; */ /* Old hardcoded */
-             filter: brightness(90%); /* Darken the primary color slightly on hover */
-             border-color: var(--primary); /* Keep or slightly darken */
+             filter: brightness(110%); 
         }
 
 
         /* Custom Token Jar Styling */
         .token-jar-container {
             width: 100%;
-            max-width: 55px;
-            margin: 0 auto 0.5rem auto;
+            max-width: 50px; /* Adjusted for potentially narrower columns if sidebar width changes */
+            margin: 0 auto 0.3rem auto;
             text-align: center;
             font-family: inherit;
         }
         .token-jar {
-            height: 60px;
+            height: 50px; /* Slightly smaller */
             border: 1px solid var(--border-color);
-            border-radius: 8px;
-            background: var(--secondary-background-color); /* Theme-aware background */
+            border-radius: 6px; /* Softer */
+            background: var(--secondary-background-color); 
             position: relative;
             overflow: hidden;
-            box-shadow: inset 0 1px 2px var(--shadow-sm, rgba(0,0,0,0.05)); /* Use a subtle inset shadow variable or fallback */
-            margin-bottom: 4px;
+            box-shadow: inset 0 1px 2px var(--shadow-sm, rgba(0,0,0,0.05)); 
+            margin-bottom: 3px;
         }
         .token-jar-fill {
             position: absolute;
             bottom: 0;
             width: 100%;
             transition: height 0.3s ease-in-out, background-color 0.3s ease-in-out;
-            /* box-shadow: inset 0 -1px 2px var(--shadow-sm, rgba(0,0,0,0.02)); */ /* Subtle effect */
         }
         .token-jar-emoji {
             position: absolute;
-            top: 6px;
+            top: 4px; /* Adjust position */
             width: 100%;
-            font-size: 18px;
+            font-size: 16px; /* Adjust size */
             line-height: 1;
         }
         .token-jar-key {
             position: absolute;
-            bottom: 6px;
+            bottom: 4px; /* Adjust position */
             width: 100%;
-            font-size: 11px;
+            font-size: 10px; /* Adjust size */
             font-weight: 600;
-            color: var(--text-color); /* Theme-aware text */
-            opacity: 0.8;
+            color: var(--text-color-secondary); 
+            opacity: 0.9;
             line-height: 1;
         }
         .token-jar-remaining {
             display: block;
-            margin-top: 2px;
-            font-size: 11px;
+            margin-top: 1px;
+            font-size: 10px;
             font-weight: 600;
-            color: var(--text-color); /* Theme-aware text */
+            color: var(--text-color); 
             opacity: 0.9;
             line-height: 1;
         }
 
-        /* Expander Styling */
+        /* Expander Styling - make them blend more */
         .stExpander {
             border: 1px solid var(--border-color);
             border-radius: 8px;
             margin-bottom: 1rem;
-            background-color: var(--background-color-primary); /* Main background for content area */
+            background-color: transparent; 
         }
         .stExpander header {
-            font-weight: 600;
-            font-size: 0.95rem;
+            font-weight: 500; 
+            font-size: 0.9rem;
             padding: 0.6rem 1rem !important;
-            background-color: var(--secondary-background-color); /* Header distinct from content */
+            background-color: color-mix(in srgb, var(--text-color) 5%, transparent); 
             border-bottom: 1px solid var(--border-color);
             border-top-left-radius: 7px;
             border-top-right-radius: 7px;
-            color: var(--text-color); /* Ensure header text is theme-aware */
+            color: var(--text-color-secondary);
         }
         .stExpander header:hover {
-            /* Slightly change background on hover, works for both themes */
-            background-color: color-mix(in srgb, var(--text-color) 5%, var(--secondary-background-color));
+            background-color: color-mix(in srgb, var(--text-color) 10%, transparent);
         }
         .stExpander div[data-testid="stExpanderDetails"] {
              padding: 0.75rem 1rem;
-             background-color: var(--background-color-primary); /* Ensure content area has correct background */
+             background-color: transparent; 
         }
 
 
-        /* Chat Message Styling */
-        /* NOTE: The screenshot shows chat messages already looking good in dark mode.
-           The following CSS makes your custom light-mode styling theme-aware.
-           If Streamlit's default chat message styling is preferred in dark mode,
-           you might only need the html[data-theme="light"] parts. */
+        /* Chat Message Styling - More like modern chat apps */
         [data-testid="stChatMessage"] {
-            border-radius: 12px;
-            padding: 14px 20px;
-            margin-bottom: 12px;
-            box-shadow: 0 2px 5px var(--shadow);
-            border: 1px solid transparent; /* Base border */
-            /* color: var(--text-color); General text color is inherited or set by theme */
+            border-radius: 18px; 
+            padding: 12px 18px; 
+            margin-bottom: 10px;
+            box-shadow: 0 1px 2px var(--shadow-sm, rgba(0,0,0,0.03)); 
+            border: none; 
+            max-width: 80%; /* Slightly less wide */
+            line-height: 1.55;
         }
 
-        /* User message specific styling */
-        html[data-theme="light"] [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
-            background-color: #E3F2FD; /* Light blue for user messages */
-            border-left: 3px solid #1E88E5; /* Original primary blue */
-            color: #0D47A1; /* Darker blue text for contrast on light blue bg */
+        /* User message */
+        [data-testid^="stChatMessageUser"] { 
+            background-color: var(--primary-color, #0EA5E9);
+            color: white; 
+            margin-left: auto; 
+            border-bottom-right-radius: 6px; 
         }
-        html[data-theme="dark"] [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
-            background-color: color-mix(in srgb, var(--primary) 15%, var(--secondary-background-color)); /* Dark theme: tinted secondary bg */
-            border-left: 3px solid var(--primary);
-            color: var(--text-color);
+        html[data-theme="light"] [data-testid^="stChatMessageUser"] {
+            /* Ensure text color is white or very light for light theme primary */
+            color: white;
+        }
+        [data-testid^="stChatMessageUser"] .stMarkdown p,
+        [data-testid^="stChatMessageUser"] .stMarkdown li { /* Target paragraphs and list items */
+            color: white !important; /* Force white for user messages */
+        }
+         html[data-theme="light"] [data-testid^="stChatMessageUser"] .stMarkdown p,
+         html[data-theme="light"] [data-testid^="stChatMessageUser"] .stMarkdown li {
+             color: white !important;
         }
 
-        /* Assistant message specific styling */
-        html[data-theme="light"] [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
-            background-color: #f9f9f9; /* Slightly off-white for assistant */
-            border-left: 3px solid #757575; /* Mid-gray */
-            color: var(--color-gray-80, #333); /* Dark gray text */
-        }
-        html[data-theme="dark"] [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
-            background-color: var(--secondary-background-color); /* Use secondary for assistant, distinct from user */
-            border-left: 3px solid var(--color-gray-60, #888); /* Lighter gray border for dark theme */
+
+        /* Assistant message */
+        [data-testid^="stChatMessageAssistant"] { 
+            background-color: var(--secondary-background-color);
             color: var(--text-color);
+            border-bottom-left-radius: 6px; 
+            margin-right: auto; /* Ensure it stays left */
+        }
+        [data-testid^="stChatMessageAssistant"] .stMarkdown p,
+        [data-testid^="stChatMessageAssistant"] .stMarkdown li {
+            color: var(--text-color) !important; /* Ensure it respects theme */
         }
         
-        [data-testid="stChatMessage"] .stMarkdown p {
-            margin-bottom: 0.3rem; /* Adjust paragraph spacing in messages */
-            line-height: 1.5;
+        /* Chat Input */
+        [data-testid="stChatInput"] {
+            background-color: transparent; /* Blend with main background */
+            border-top: 1px solid var(--border-color);
+            padding-top: 0.75rem; /* Add some space above input */
+        }
+        [data-testid="stChatInput"] input, /* The actual input field */
+        [data-testid="stChatInput"] textarea {
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background-color: var(--secondary-background-color);
+            padding: 10px 12px; /* Adjust padding */
+        }
+        [data-testid="stChatInput"] input:focus,
+        [data-testid="stChatInput"] textarea:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 1px var(--primary-color);
         }
 
-        /* Divider */
+
+        /* Centered Welcome Message for Empty Chat */
+        .empty-chat-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 60vh; /* Ensure it takes up good vertical space */
+            text-align: center;
+            padding: 2rem;
+        }
+        .empty-chat-container img.logo-main { /* Class for the main logo */
+            width: 70px;
+            height: 70px;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .empty-chat-container h2 {
+            font-size: 1.8rem; /* Slightly smaller */
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: var(--text-color);
+        }
+        .empty-chat-container p {
+            font-size: 1rem; /* Slightly smaller */
+            color: var(--text-color-secondary);
+            max-width: 450px;
+            line-height: 1.6;
+        }
+        /* Styling for suggestion chips/buttons (if you implement them) */
+        .suggestion-chip-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 1.5rem;
+            flex-wrap: wrap; 
+            justify-content: center;
+        }
+        .suggestion-chip {
+            background-color: var(--secondary-background-color);
+            color: var(--text-color);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        .suggestion-chip:hover {
+            background-color: color-mix(in srgb, var(--primary-color, #71717A) 15%, var(--secondary-background-color));
+            border-color: var(--primary-color, #71717A);
+        }
+
         hr {
           margin-top: 1.5rem;
           margin-bottom: 1.5rem;
           border: 0;
-          border-top: 1px solid var(--border-color); /* Theme-aware divider */
+          border-top: 1px solid var(--border-color);
         }
-
-        /* Chat input - Streamlit handles this well, usually no need to override unless specific design */
-        /*
-        [data-testid="stChatInput"] {
-            background-color: var(--secondary-background-color);
-            border-top: 1px solid var(--border-color);
-        }
-        */
 
     </style>
     """
@@ -558,11 +639,9 @@ if "credits" not in st.session_state:
 
 # ───────────────────────── Sidebar ─────────────────────────────
 with st.sidebar:
-    # This container helps target the logo and title specifically with CSS
-    # st.markdown('<div class="sidebar-header">', unsafe_allow_html=True) # This doesn't work as expected for child elements
-    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50) # CSS will style this
-    st.title("OpenRouter Chat") # CSS will style this
-    # st.markdown('</div>', unsafe_allow_html=True)
+    # Sidebar Header: Logo + Title (CSS will style based on structure)
+    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50) 
+    st.title("OpenRouter Chat")
 
     st.subheader("Daily Jars (Msgs Left)")
     active_model_keys = sorted(MODEL_MAP.keys())
@@ -573,12 +652,10 @@ with st.sidebar:
         pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0)
         fill = int(pct * 100)
         
-        # Gauge colors
-        if pct > .5: color = "#4caf50" # Green
-        elif pct > .25: color = "#ffc107" # Yellow
-        else: color = "#f44336" # Red
+        if pct > .5: color = "#4caf50" 
+        elif pct > .25: color = "#ffc107" 
+        else: color = "#f44336" 
         
-        # Use new CSS classes for token jars
         cols[i].markdown(f"""
             <div class="token-jar-container">
               <div class="token-jar">
@@ -588,9 +665,8 @@ with st.sidebar:
               </div>
               <span class="token-jar-remaining">{'∞' if lim > 900_000 else left}</span>
             </div>""", unsafe_allow_html=True)
-    st.divider() # Modern divider
+    st.divider() 
 
-    # New Chat button
     current_session_is_truly_blank = False
     if st.session_state.sid in sessions:
         current_session_data = sessions.get(st.session_state.sid)
@@ -599,7 +675,6 @@ with st.sidebar:
            not current_session_data.get("messages"):
             current_session_is_truly_blank = True
     
-    # The key for "New chat" button helps target it with CSS if needed
     if st.button("➕ New chat", key="new_chat_button_top", use_container_width=True, disabled=current_session_is_truly_blank):
         new_session_id = _new_sid()
         st.session_state.sid = new_session_id
@@ -608,34 +683,34 @@ with st.sidebar:
     elif current_session_is_truly_blank:
         st.caption("Current chat is empty. Add a message or switch.")
 
-    # Chat session list
     st.subheader("Chats")
     sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
     for sid_key in sorted_sids:
         title = sessions[sid_key].get("title", "Untitled")
         display_title = title[:25] + ("…" if len(title) > 25 else "")
         
-        # Highlight current session button (subtly, can be enhanced with more complex CSS/JS)
-        button_type = "secondary" # Default Streamlit button type
         if st.session_state.sid == sid_key:
-            # Streamlit doesn't offer easy native "active" state for buttons
-            # We could make the text bold or add an emoji.
-            display_title = f"🔹 {display_title}" # Indicate active chat
+            # Using a span for more specific CSS targeting of active item
+            # The :has selector in CSS tries to target this structure.
+            # display_title = f"<span>🔹 {display_title}</span>" # Wrapping in span
+             display_title = f"🔹 {display_title}" # Simpler, rely on text content for now or more complex CSS
 
+        # Pass display_title as Markdown to render the span if used
+        # if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True, unsafe_allow_html=(st.session_state.sid == sid_key)):
         if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True):
             if st.session_state.sid != sid_key:
                 st.session_state.sid = sid_key
                 if _delete_unused_blank_sessions(keep_sid=sid_key):
                     _save(SESS_FILE, sessions)
                 st.rerun()
-    st.divider() # Modern divider
+    st.divider()
 
     st.subheader("Model-Routing Map")
     st.caption(f"Router engine: {ROUTER_MODEL_ID}")
-    with st.expander("Letters → Models", expanded=False): # Keep it collapsed by default
+    with st.expander("Letters → Models", expanded=False):
         for k_model in sorted(MODEL_MAP.keys()):
             st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
-    st.divider() # Modern divider
+    st.divider()
 
     tot, used, rem = (
         st.session_state.credits.get("total"),
@@ -653,7 +728,7 @@ with st.sidebar:
         else:
             st.markdown(f"**Purchased:** ${tot:.2f} cr")
             st.markdown(f"**Used:** ${used:.2f} cr")
-            st.markdown(f"**Remaining:** ${rem:.2f} cr") # Added $ sign assuming credits are monetary
+            st.markdown(f"**Remaining:** ${rem:.2f} cr")
             try:
                 last_updated_str = datetime.fromtimestamp(st.session_state.credits_ts, TZ).strftime('%-d %b %Y, %H:%M:%S')
                 st.caption(f"Last updated: {last_updated_str}")
@@ -669,30 +744,52 @@ if current_sid not in sessions:
     _save(SESS_FILE, sessions)
     st.rerun()
 
-# Display current chat title (optional, can be styled)
-# st.subheader(f"Chat: {sessions[current_sid].get('title', 'Untitled')}")
-# st.markdown(f"### {sessions[current_sid].get('title', 'Untitled')}")
-
-
 chat_history = sessions[current_sid]["messages"]
+is_new_empty_chat = not chat_history and sessions[current_sid]["title"] == "New chat"
 
-for msg_idx, msg in enumerate(chat_history):
-    role = msg["role"]
-    avatar_for_display = "👤" # User
-    if role == "assistant":
-        model_key_in_message = msg.get("model")
-        if model_key_in_message == FALLBACK_MODEL_KEY: avatar_for_display = FALLBACK_MODEL_EMOJI
-        elif model_key_in_message in EMOJI: avatar_for_display = EMOJI[model_key_in_message]
-        else: avatar_for_display = EMOJI.get("F", "🤖") # Default assistant avatar
-    
-    # Use a key for chat messages if you plan to manipulate them later, though usually not needed for display
-    with st.chat_message(role, avatar=avatar_for_display):
-        st.markdown(msg["content"])
+if is_new_empty_chat:
+    st.markdown(f"""
+    <div class="empty-chat-container">
+        <img src="https://avatars.githubusercontent.com/u/130328222?s=200&v=4" class="logo-main">
+        <h2>How can I help you today, Asher?</h2>
+        <p>I can help you choose the best model for your task based on its capabilities and your remaining quotas. Just type your query below!</p>
+        <!-- Example suggestion chips (functionality would need to be added) -->
+        <!--
+        <div class="suggestion-chip-container">
+            <div class="suggestion-chip">Brainstorm ideas</div>
+            <div class="suggestion-chip">Write a short story</div>
+            <div class="suggestion-chip">Explain a complex topic</div>
+        </div>
+        -->
+    </div>
+    """, unsafe_allow_html=True)
+else:
+    # Optionally, display chat title in main panel if not empty
+    # current_title = sessions[current_sid].get('title', 'Untitled')
+    # if current_title != "New chat":
+    #    st.markdown(f"<h3 style='text-align:center; color: var(--text-color-secondary); font-weight: 500; margin-bottom:1.5rem;'>{current_title}</h3>", unsafe_allow_html=True)
+
+    for msg_idx, msg in enumerate(chat_history):
+        role = msg["role"]
+        avatar_for_display = "👤" # User
+        if role == "assistant":
+            model_key_in_message = msg.get("model")
+            if model_key_in_message == FALLBACK_MODEL_KEY: avatar_for_display = FALLBACK_MODEL_EMOJI
+            elif model_key_in_message in EMOJI: avatar_for_display = EMOJI[model_key_in_message]
+            else: avatar_for_display = EMOJI.get("F", "🤖") 
+        
+        with st.chat_message(role, avatar=avatar_for_display):
+            st.markdown(msg["content"])
+
 
 if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
     chat_history.append({"role":"user","content":prompt})
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(prompt)
+    
+    # Display user message immediately only if the chat was NOT new/empty
+    # If it was new/empty, the whole page will refresh and show it as part of history
+    if not is_new_empty_chat:
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(prompt)
 
     allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
     use_fallback_model = False
@@ -712,7 +809,7 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
     else:
         if len(allowed_standard_models) == 1:
             chosen_model_key_for_api = allowed_standard_models[0]
-            logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it directly.")
+            logging.info(f"Only one standard model ('{chosen_model_key_for_api}') has daily quota. Selecting it.")
         else:
             routed_key = route_choice(prompt, allowed_standard_models)
             logging.info(f"Router selected model: '{routed_key}'.")
@@ -721,25 +818,38 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
         max_tokens_for_api = MAX_TOKENS[chosen_model_key_for_api]
         avatar_for_response = EMOJI[chosen_model_key_for_api]
 
-    with st.chat_message("assistant", avatar=avatar_for_response):
-        response_placeholder, full_response_content = st.empty(), ""
+    # For new/empty chats, the assistant message will appear after rerun.
+    # For existing chats, it streams live.
+    if not is_new_empty_chat:
+        with st.chat_message("assistant", avatar=avatar_for_response):
+            response_placeholder, full_response_content = st.empty(), ""
+            api_call_ok = True
+            for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
+                if error_message:
+                    full_response_content = f"❗ **API Error**: {error_message}"
+                    response_placeholder.error(full_response_content) 
+                    api_call_ok = False; break
+                if chunk:
+                    full_response_content += chunk
+                    response_placeholder.markdown(full_response_content + "▌")
+            response_placeholder.markdown(full_response_content)
+    else: # For new chats, generate response but don't display it live, it will show on rerun
+        full_response_content = ""
         api_call_ok = True
         for chunk, error_message in streamed(model_id_to_use_for_api, chat_history, max_tokens_for_api):
             if error_message:
                 full_response_content = f"❗ **API Error**: {error_message}"
-                response_placeholder.error(full_response_content) # Use st.error for visual distinction
                 api_call_ok = False; break
             if chunk:
                 full_response_content += chunk
-                response_placeholder.markdown(full_response_content + "▌")
-        response_placeholder.markdown(full_response_content)
+        # full_response_content is now populated
 
     chat_history.append({"role":"assistant","content":full_response_content,"model": chosen_model_key_for_api})
 
     if api_call_ok:
         if not use_fallback_model: record_use(chosen_model_key_for_api)
         
-        if sessions[current_sid]["title"] == "New chat" and sessions[current_sid]["messages"]:
+        if sessions[current_sid]["title"] == "New chat" and sessions[current_sid]["messages"]: # Should be true if len(messages) >= 2 now
             sessions[current_sid]["title"] = _autoname(prompt)
             _delete_unused_blank_sessions(keep_sid=current_sid)
 
