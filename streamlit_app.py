@@ -3,7 +3,7 @@
 OpenRouter Streamlit Chat — Full Edition
 • Persistent chat sessions
 • Daily/weekly/monthly quotas (“6-2-1 / 3-1 / Unlimited”)
-• Pretty ‘token-jar’ gauges (fixed at top + live refresh)
+• Pretty ‘token-jar’ gauges (fixed at top)
 • Detailed model-routing panel (Mistral router)
 • Live credit/usage stats (GET /credits)
 • Auto-titling of new chats
@@ -83,31 +83,27 @@ QUOTA_FILE = DATA_DIR / "quotas.json"
 # ──────────────────────── Helper Functions ───────────────────────
 
 def _load(path: Path, default):
-    """Lenient JSON loader."""
     try:
         return json.loads(path.read_text())
     except (FileNotFoundError, json.JSONDecodeError):
         return default
 
 def _save(path: Path, obj):
-    """Pretty-print and save JSON."""
     path.write_text(json.dumps(obj, indent=2))
 
 def _today():    return date.today().isoformat()
-def _yweek():    return datetime.now(TZ).strftime("%G-%V")  # ISO week-year
+def _yweek():    return datetime.now(TZ).strftime("%G-%V")
 def _ymonth():   return datetime.now(TZ).strftime("%Y-%m")
 
 
 # ───────────────────── Quota Management ────────────────────────
 
 def _reset(block: dict, key: str, stamp: str, zeros: dict):
-    """If the timestamp in block[key] != stamp, reset its usage."""
     if block.get(key) != stamp:
         block[key] = stamp
         block[f"{key}_u"] = zeros.copy()
 
 def _load_quota():
-    """Initialize or reset daily/weekly/monthly usage blocks."""
     zeros = {k: 0 for k in MODEL_MAP}
     q = _load(QUOTA_FILE, {})
     _reset(q, "d", _today(), zeros)
@@ -119,7 +115,6 @@ def _load_quota():
 quota = _load_quota()
 
 def remaining(key: str):
-    """Return (daily_left, weekly_left, monthly_left) for model key."""
     ud = quota["d_u"].get(key, 0)
     uw = quota["w_u"].get(key, 0)
     um = quota["m_u"].get(key, 0)
@@ -127,7 +122,6 @@ def remaining(key: str):
     return ld - ud, lw - uw, lm - um
 
 def record_use(key: str):
-    """Increment usage counters after a successful call."""
     for blk in ("d_u", "w_u", "m_u"):
         quota[blk][key] = quota[blk].get(key, 0) + 1
     _save(QUOTA_FILE, quota)
@@ -138,14 +132,12 @@ def record_use(key: str):
 sessions = _load(SESS_FILE, {})
 
 def _new_sid():
-    """Create a new chat session ID and persist."""
     sid = str(int(time.time() * 1000))
     sessions[sid] = {"title": "New chat", "messages": []}
     _save(SESS_FILE, sessions)
     return sid
 
 def _autoname(seed: str) -> str:
-    """Generate a short title (<25 chars) from the first user message."""
     words = seed.strip().split()
     cand = " ".join(words[:3]) or "Chat"
     return (cand[:25] + "…") if len(cand) > 25 else cand
@@ -160,10 +152,9 @@ logging.basicConfig(
 )
 
 
-# ──────────────────────────── API Calls ──────────────────────────
+# ────────────────────────── API Calls ──────────────────────────
 
 def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT):
-    """Low-level POST to /chat/completions."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type":  "application/json"
@@ -175,10 +166,6 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
     )
 
 def streamed(model: str, messages: list, max_tokens_out: int):
-    """
-    Yield (chunk_text, error_msg) pairs.
-    chunk_text is str or None; error_msg is str or None.
-    """
     payload = {
         "model":      model,
         "messages":   messages,
@@ -218,10 +205,9 @@ def streamed(model: str, messages: list, max_tokens_out: int):
                 yield delta, None
 
 
-# ────────────────────────── Model Routing ───────────────────────
+# ───────────────────────── Model Routing ───────────────────────
 
 def route_choice(user_msg: str, allowed: list[str]) -> str:
-    """Call the router LLM to pick one letter from allowed."""
     if not allowed:
         logging.warning("route_choice called with empty allowed list.")
         return allowed[0] if allowed else "F"
@@ -257,10 +243,9 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
     return allowed[0]
 
 
-# ───────────────────── Credits Endpoint ────────────────────────
+# ───────────────────── Credits Endpoint ───────────────────────
 
-def get_credits() -> tuple[float|None,float|None,float|None]:
-    """Fetch total / used credits from the API."""
+def get_credits():
     try:
         r = requests.get(
             f"{OPENROUTER_API_BASE}/credits",
@@ -283,7 +268,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize session state
 if "sid" not in st.session_state:
     st.session_state.sid = _new_sid()
 if "credits" not in st.session_state:
@@ -299,32 +283,32 @@ with st.sidebar:
     st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50)
     st.title("OpenRouter Chat")
 
-    # 1) Token-Jar gauges pinned at the top
+    # Token-Jar gauges pinned at the top
     st.subheader("Daily Token-Jars")
     cols = st.columns(len(MODEL_MAP))
     for i, m in enumerate(sorted(MODEL_MAP)):
         left, _, _ = remaining(m)
-        lim, _, _ = PLAN[m]
-        pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim>0 else 0.0)
+        lim, _, _  = PLAN[m]
+        pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0)
         fill = int(pct * 100)
         color = "#4caf50" if pct > .5 else "#ff9800" if pct > .25 else "#f44336"
         cols[i].markdown(f"""
             <div style="width:44px;margin:auto;text-align:center;font-size:12px">
               <div style="border:2px solid #555;border-radius:6px;height:60px;position:relative;overflow:hidden;background:#f0f0f0;">
                 <div style="position:absolute;bottom:0;width:100%;height:{fill}%;background:{color};"></div>
-                <div style="position:absolute;top:2px;width:100%;font-size:18px">{EMOJI[m]}</div>
+                <div style="position:absolute;top:2px;width:100%;font-size:18px">{EMOJI[m]}</div>  
                 <div style="position:absolute;bottom:2px;width:100%;font-size:10px;font-weight:bold">{m}</div>
               </div>
               <span>{'∞' if lim>900_000 else left}</span>
             </div>""", unsafe_allow_html=True)
     st.markdown("---")
 
-    # 2) New Chat button
+    # New Chat button
     if st.button("➕ New chat", use_container_width=True):
         st.session_state.sid = _new_sid()
         st.experimental_rerun()
 
-    # 3) Chat session list
+    # Chat session list
     st.subheader("Chats")
     for sid in sorted(sessions.keys(), key=int, reverse=True):
         title = sessions[sid]["title"][:25] or "Untitled"
@@ -334,7 +318,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # 4) Model-routing info
+    # Model-routing info
     st.subheader("Model-Routing Map")
     st.caption(f"Router engine: `{ROUTER_MODEL_ID}`")
     with st.expander("Letters → Models"):
@@ -343,7 +327,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # 5) Live credit stats
+    # Live credit stats
     tot, used, rem = (
         st.session_state.credits["total"],
         st.session_state.credits["used"],
@@ -373,10 +357,6 @@ with st.sidebar:
 # ────────────────────────── Main Chat Panel ─────────────────────
 
 sid = st.session_state.sid
-if sid not in sessions:
-    st.session_state.sid = _new_sid()
-    sid = st.session_state.sid
-
 chat = sessions[sid]["messages"]
 
 # Display existing messages
@@ -392,45 +372,42 @@ if prompt := st.chat_input("Ask anything…"):
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
 
-    # Determine allowed models by daily quota
+    # Check quotas
     allowed = [k for k in MODEL_MAP if remaining(k)[0] > 0]
     if not allowed:
         st.error("❗ All daily quotas exhausted. Try again tomorrow.")
         st.stop()
 
-    # Route to a model
+    # Route
     chosen = route_choice(prompt, allowed)
     model_id = MODEL_MAP[chosen]
-    max_out = MAX_TOKENS[chosen]
+    max_out  = MAX_TOKENS[chosen]
 
-    # Stream the assistant response
+    # Stream response
     with st.chat_message("assistant", avatar=EMOJI[chosen]):
         placeholder, full = st.empty(), ""
-        stream_ok = True
+        ok = True
         for chunk, err in streamed(model_id, chat, max_out):
             if err:
                 full = f"❗ **API Error**: {err}"
                 placeholder.error(full)
-                stream_ok = False
+                ok = False
                 break
             if chunk:
                 full += chunk
                 placeholder.markdown(full + "▌")
         placeholder.markdown(full)
 
-    # Save assistant message
+    # Save assistant output
     chat.append({"role":"assistant","content":full,"model":chosen})
 
-    # Record usage & refresh token jars
-    if stream_ok:
+    # Record usage, auto-title, and persist
+    if ok:
         record_use(chosen)
-        # auto-title the session if it's still "New chat"
         if sessions[sid]["title"] == "New chat":
             sessions[sid]["title"] = _autoname(prompt)
         _save(SESS_FILE, sessions)
-        # Immediately rerun to refresh sidebar jars
-        st.experimental_rerun()
-
+        # <-- no st.experimental_rerun() here
 
 # ───────────────────────── Self-Relaunch ──────────────────────
 
