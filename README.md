@@ -7,39 +7,28 @@
 
 **Your polished, feature-rich, and highly customizable gateway to a diverse range of LLMs via OpenRouter.ai, all within a sleek Streamlit interface!**
 
-This isn't just another chat app. It's a meticulously crafted experience designed for power users and developers who want fine-grained control over their AI interactions, complete with intelligent model routing, robust quota management, and a beautiful, redesigned UI.
+Experience designed for power users and developers who want fine-grained control over their AI interactions, complete with intelligent model routing, robust quota management, and a *decent* UI.
 
 ---
 
 ## ✨ Features
 
-*   🎨 **Sleek, Modern UI:** A completely redesigned and polished user interface, heavily customized with CSS for a professional and enjoyable experience (dark/light theme compatible).
-*   🧠 **Intelligent Model Routing:** Don't just pick a model; let an AI assistant choose the *best* model for your query based on your defined criteria (quality, speed, cost).
-*   📊 **Comprehensive Quota Management:** Set and track daily, weekly, and monthly usage limits for different models to manage costs and API access effectively.
+*   🎨 **Sleek, Modern UI:** It has dark mode, be grateful.
+*   🧠 **Intelligent Model Routing:** Don't just pick a model; let an AI choose the *best* model for your query, lower the cost at the price of twice the cost!
+*   📊 **Comprehensive Quota Management:** Usage limits for different models to manage costs and API access effectively.
 *   💾 **Persistent Chat Sessions:** Conversations are automatically saved and can be revisited. Blank, unused sessions are auto-cleaned.
-*   🔄 **Real-time Streaming:** Get responses token-by-token for a fluid, ChatGPT-like experience.
-*   💰 **Credit Monitoring:** Keep an eye on your OpenRouter API credits directly within the app.
-*   🛠️ **Highly Configurable:** Easily customize available models, their quotas, descriptions, emojis, and even the router model.
+*   🔄 **Real-time Streaming:** Get responses token-by-token for a fluid, ChatGPT-like experience. (This took 1 hour, this should not have taken 1 hour.)
+*   💰 **Credit Monitoring:** Since I like to mention features twice, keep an eye on your OpenRouter API credits directly within the app.
+*   🛠️ **Highly Configurable:** (Not uh, added - yet)
 *   🛡️ **Robust Error Handling:** Gracefully handles API errors, network issues, and unexpected responses.
 *   🆓 **Fallback Safety Net:** Designate a free/cost-effective model as a fallback if preferred models are unavailable or quotas are hit.
-*   📝 **Detailed Logging:** Comprehensive logging for easy debugging and monitoring.
+*   📝 **Detailed Logging:** Not very comprehensive logging for easy debugging and monitoring.
 *   📋 **Copy-to-Clipboard:** Easily copy model responses.
-*   ⏱️ **Timestamped Messages:** Clear indication of when messages were sent/received.
-
 ---
 
-## 🖼️ Sneak Peek (Add Your Screenshots Here!)
+## 🖼️ Sneak Peek
 
-**(It's HIGHLY recommended to add 2-3 screenshots or a GIF showcasing the UI)**
-
-*Example: Main chat interface*
-`![Main Chat UI](PATH_TO_YOUR_SCREENSHOT_1.png)`
-
-*Example: Sidebar with model selection & quotas*
-`![Sidebar UI](PATH_TO_YOUR_SCREENSHOT_2.png)`
-
-*Example: Model routing in action (optional)*
-`![Routing Example](PATH_TO_YOUR_SCREENSHOT_3.gif)`
+<img width="1295" alt="image" src="https://github.com/user-attachments/assets/25362495-05fe-48aa-98ec-126cc5c3402f" />
 
 ---
 
