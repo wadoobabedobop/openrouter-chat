@@ -28,7 +28,7 @@ OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT     = 120
 
 # Tavily Search Configuration
-TAVILY_API_KEY     = "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" # Replace with your Tavily API key
+TAVILY_API_KEY     = "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" # Replace with your Tavily API key
 TAVILY_SEARCH_BASE = "https://api.tavily.com/v1/search"
 
 # Fallback Model Configuration (used when other quotas are exhausted)
@@ -139,7 +139,7 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
 def search_tavily(query: str, limit: int = 5) -> dict:
     logging.info(f"EXEC TAVILY SEARCH: query='{query}', limit={limit}")
     headers = {
-        "Authorization": f"Bearer {TAVILY_API_KEY}",
+        "Authorization": f"Bearer {TAVILY_API_KEY}", # This now uses your new key
         "Content-Type": "application/json"
     }
     json_payload = {
@@ -192,7 +192,7 @@ def run_agentic_chat(model: str, messages: list, max_tokens_out: int):
 
     if not interaction or interaction[0].get("role") != "system":
         interaction.insert(0, {"role": "system", "content": final_system_prompt_content})
-    else: 
+    else:
         interaction[0]["content"] = final_system_prompt_content
         logging.debug("AGENT: Overwrote existing system prompt with tool guidance.")
 
@@ -264,22 +264,22 @@ def run_agentic_chat(model: str, messages: list, max_tokens_out: int):
             logging.info(f"{current_iteration_info}: Model wants to call '{tool_name}' with args: {fc.get('arguments')}")
             if tool_uses_count >= max_tool_uses and tool_name == "search_web":
                  logging.warning(f"{current_iteration_info}: Max tool uses ({max_tool_uses}) reached. Forcing synthesis.")
-                 interaction.append(choice) 
+                 interaction.append(choice)
                  interaction.append({"role":"function", "name":tool_name, "content": json.dumps({"error": "Max tool uses. Please synthesize answer."})})
                  continue
             try: args = json.loads(fc["arguments"])
             except json.JSONDecodeError:
                 logging.error(f"{current_iteration_info}: Bad JSON args for {tool_name}: {fc.get('arguments')}", exc_info=True)
-                interaction.append(choice); interaction.append({"role":"function", "name":tool_name, "content":json.dumps({"error":"Invalid JSON args"})}); continue            
+                interaction.append(choice); interaction.append({"role":"function", "name":tool_name, "content":json.dumps({"error":"Invalid JSON args"})}); continue
             if tool_name == "search_web":
-                query = args.get("query"); limit = args.get("limit", 3) 
+                query = args.get("query"); limit = args.get("limit", 3)
                 if not query: tool_result_content = json.dumps({"error":"Search query required."})
                 else: tool_result_content = json.dumps(search_tavily(query, limit))
                 interaction.append(choice); interaction.append({"role":"function", "name":tool_name, "content":tool_result_content})
             else: # Unknown function
                 logging.warning(f"{current_iteration_info}: Unknown function called: {tool_name}")
                 interaction.append(choice); interaction.append({"role":"function", "name":tool_name, "content":json.dumps({"error":f"Unknown function: {tool_name}"})})
-            continue 
+            continue
 
         final_content = choice.get("content")
         if final_content is not None:
@@ -293,7 +293,7 @@ def run_agentic_chat(model: str, messages: list, max_tokens_out: int):
     # After loop: Max tool uses reached
     logging.warning(f"AGENT: Exited due to max tool uses ({max_tool_uses}). Attempting final synthesis.")
     interaction.append({"role":"user", "content":"Based on our conversation and information gathered, provide your best final answer. If unable, explain why."})
-    payload_final = {"model":model, "messages":interaction, "max_tokens":max_tokens_out, "stream":False}
+    payload_final = {"model":model, "messages":interaction, "max_tokens":max_tok_api_call, "stream":False}
     if LOGGING_LEVEL == logging.DEBUG: logging.debug(f"AGENT (Final Attempt): Payload:\n{json.dumps(payload_final, indent=2)}")
     try:
         resp_final = api_post(payload_final); resp_final.raise_for_status()
@@ -347,7 +347,7 @@ if "sid" not in st.session_state: st.session_state.sid = _new_sid()
 if "credits" not in st.session_state:
     st.session_state.credits=dict(zip(("total","used","remaining"),get_credits())); st.session_state.credits_ts=time.time()
 
-with st.sidebar: 
+with st.sidebar:
     st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4",width=50); st.title("OpenRouter Chat")
     st.subheader("Daily Jars (Msgs Left)")
     active_mk_sorted = sorted(MODEL_MAP.keys()); cols = st.columns(len(active_mk_sorted))
@@ -377,15 +377,15 @@ with st.sidebar:
 
 # ────────────────────────── Main Chat Panel ─────────────────────
 current_sid = st.session_state.sid
-if current_sid not in sessions: 
+if current_sid not in sessions:
     st.error("Chat session not found. New one created."); current_sid=_new_sid(); st.session_state.sid=current_sid; st.rerun()
 chat_history = sessions[current_sid]["messages"]
 
-for msg_data in chat_history: 
+for msg_data in chat_history:
     role_msg = msg_data["role"]
     if role_msg=="user": avatar_disp="👤"
     elif role_msg=="assistant": avatar_disp = FALLBACK_MODEL_EMOJI if msg_data.get("model")==FALLBACK_MODEL_KEY else EMOJI.get(msg_data.get("model","F"), "🤖")
-    else: continue 
+    else: continue
     with st.chat_message(role_msg, avatar=avatar_disp): st.markdown(msg_data["content"])
 
 if prompt := st.chat_input("Ask anything…"):
