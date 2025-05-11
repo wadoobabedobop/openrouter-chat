@@ -210,7 +210,7 @@ def streamed(model: str, messages: list, max_tokens_out: int):
 def route_choice(user_msg: str, allowed: list[str]) -> str:
     if not allowed:
         logging.warning("route_choice called with empty allowed list.")
-        return "F"
+        return "F" 
 
     if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed {allowed[0]}, selecting it directly.")
@@ -298,72 +298,83 @@ with st.sidebar:
         fill = int(pct * 100)
         color = "#4caf50" if pct > .5 else "#ff9800" if pct > .25 else "#f44336"
         
+        # Jar UI with CSS comments removed
         cols[i].markdown(f"""
             <div style="width:44px; margin:auto; text-align:center;">
               <div style="
-                height:60px; /* Jar height */
-                border:1px solid #ccc; /* Lighter, thinner border */
-                border-radius:7px;    /* Slightly more rounded */
-                background:#f5f5f5; /* Jar empty background - light gray */
+                height:60px; 
+                border:1px solid #ccc; 
+                border-radius:7px;    
+                background:#f5f5f5; 
                 position:relative;
-                overflow:hidden; /* Clip fill */
-                box-shadow: inset 0 1px 2px rgba(0,0,0,0.07), /* Subtle inner shadow for depth */
-                            0 1px 1px rgba(0,0,0,0.05); /* Subtle outer shadow */
+                overflow:hidden; 
+                box-shadow: inset 0 1px 2px rgba(0,0,0,0.07), 
+                            0 1px 1px rgba(0,0,0,0.05); 
               ">
-                <div style=" /* Fill element */
+                <div style=" 
                   position:absolute;
                   bottom:0;
                   width:100%;
                   height:{fill}%;
-                  background:{color}; /* Main fill color (green, orange, red) */
-                  box-shadow: inset 0 2px 2px rgba(255,255,255,0.3); /* Highlight at top of fill */
+                  background:{color}; 
+                  box-shadow: inset 0 2px 2px rgba(255,255,255,0.3); 
                   box-sizing: border-box;
                 "></div>
-                <div style=" /* Emoji */
+                <div style=" 
                   position:absolute;
-                  top:2px; /* Position from top */
+                  top:2px; 
                   width:100%;
-                  font-size:18px; /* Emoji size */
-                  line-height:1; /* Consistent emoji positioning */
+                  font-size:18px; 
+                  line-height:1; 
                 ">{EMOJI[m]}</div>  
-                <div style=" /* Model letter */
+                <div style=" 
                   position:absolute;
-                  bottom:2px; /* Position from bottom */
+                  bottom:2px; 
                   width:100%;
-                  font-size:11px; /* Letter size */
+                  font-size:11px; 
                   font-weight:bold;
-                  color:#555; /* Letter color (dark gray) */
+                  color:#555; 
                   line-height:1;
                 ">{m}</div>
               </div>
-              <span style=" /* Count below jar */
-                display:block; /* Takes full width of its 44px container */
+              <span style=" 
+                display:block; 
                 margin-top:4px;
                 font-size:11px;
-                font-weight:600; /* Semi-bold */
-                color:#333; /* Count color (darker gray) */
+                font-weight:600; 
+                color:#333; 
                 line-height:1;
               ">
                 {'∞' if lim > 900_000 else left}
               </span>
             </div>""", unsafe_allow_html=True)
-    st.markdown("---") # Separator 1 (after Jars)
+    st.markdown("---")
 
     # New Chat button
     if st.button("➕ New chat", use_container_width=True):
         st.session_state.sid = _new_sid()
-        st.experimental_rerun()
+        st.experimental_rerun() 
 
-    st.markdown("---") # Separator 2 (after New Chat, before Model Routing)
+    # Chat session list
+    st.subheader("Chats")
+    sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
+    for sid_key in sorted_sids:
+        title = sessions[sid_key]["title"][:25] + ("…" if len(sessions[sid_key]["title"]) > 25 else "") or "Untitled"
+        if st.button(title, key=f"session_button_{sid_key}", use_container_width=True):
+            if st.session_state.sid != sid_key: 
+                st.session_state.sid = sid_key
+                st.experimental_rerun()
+
+    st.markdown("---")
 
     # Model-routing info
     st.subheader("Model-Routing Map")
     st.caption(f"Router engine: `{ROUTER_MODEL_ID}`")
     with st.expander("Letters → Models"):
-        for k_model in sorted(MODEL_MAP.keys()): # Sort for consistent display
+        for k_model in sorted(MODEL_MAP.keys()): 
             st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
 
-    st.markdown("---") # Separator 3 (after Model Routing, before Account Stats)
+    st.markdown("---")
 
     # Live credit stats
     tot, used, rem = (
@@ -371,20 +382,19 @@ with st.sidebar:
         st.session_state.credits["used"],
         st.session_state.credits["remaining"],
     )
-    with st.expander("Account stats (credits)", expanded=False): # Start collapsed
-        if st.button("Refresh Credits", key="refresh_credits_button"): # Ensure unique key
+    with st.expander("Account stats (credits)", expanded=False): 
+        if st.button("Refresh Credits", key="refresh_credits_button"): 
             st.session_state.credits = dict(zip(
                 ("total","used","remaining"),
                 get_credits()
             ))
             st.session_state.credits_ts = time.time()
-            # Update local vars after refresh to immediately show new values
             tot, used, rem = (
                 st.session_state.credits["total"],
                 st.session_state.credits["used"],
                 st.session_state.credits["remaining"],
             )
-            st.experimental_rerun() # Rerun to update display
+            st.experimental_rerun() 
 
         if tot is None:
             st.warning("Could not fetch credits.")
@@ -398,18 +408,6 @@ with st.sidebar:
             except TypeError: 
                 st.caption("Last updated: N/A")
 
-    st.markdown("---") # Separator 4 (after Account Stats, before Chat List)
-
-    # Chat session list
-    st.subheader("Chats")
-    sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
-    for sid_key in sorted_sids:
-        title = sessions[sid_key]["title"][:25] + ("…" if len(sessions[sid_key]["title"]) > 25 else "") or "Untitled"
-        if st.button(title, key=f"session_button_{sid_key}", use_container_width=True):
-            if st.session_state.sid != sid_key: 
-                st.session_state.sid = sid_key
-                st.experimental_rerun()
-
 
 # ────────────────────────── Main Chat Panel ─────────────────────
 
@@ -421,15 +419,17 @@ if current_sid not in sessions:
     st.experimental_rerun()
 
 
-chat_history = sessions[current_sid]["messages"]
+chat_history = sessions[current_sid]["messages"] 
 
-for msg in chat_history:
-    avatar_key = msg.get("model", "F") if msg["role"] == "assistant" else "user"
+# Display existing messages
+for msg in chat_history: 
+    avatar_key = msg.get("model", "F") if msg["role"] == "assistant" else "user" 
     avatar_map = {"user": "👤", **EMOJI} 
-    avatar = avatar_map.get(avatar_key, "🤖") 
-    with st.chat_message(msg["role"], avatar=avatar):
-        st.markdown(msg["content"])
+    avatar = avatar_map.get(avatar_key, "🤖") # This is approx line 316
+    with st.chat_message(msg["role"], avatar=avatar):                     
+        st.markdown(msg["content"])                                       
 
+# Input box
 if prompt := st.chat_input("Ask anything…"):
     chat_history.append({"role":"user","content":prompt})
     with st.chat_message("user", avatar="👤"):
@@ -466,7 +466,7 @@ if prompt := st.chat_input("Ask anything…"):
             sessions[current_sid]["title"] = _autoname(prompt)
     
     _save(SESS_FILE, sessions) 
-    st.experimental_rerun()
+    st.experimental_rerun() 
 
 
 # ───────────────────────── Self-Relaunch ──────────────────────
