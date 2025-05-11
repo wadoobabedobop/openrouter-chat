@@ -26,26 +26,28 @@ MODEL_MAP = {
     "C": "openai/chatgpt-4o-latest",
     "D": "deepseek/deepseek-r1",
     "E": "x-ai/grok-3-beta",
-    "F": "google/gemini-2.5-flash-preview"      # also used for router
+    "F": "google/gemini-2.5-flash-preview" # Model F remains Gemini Flash
 }
-ROUTER_MODEL_ID     = MODEL_MAP["F"]
+# UPDATED ROUTER_MODEL_ID
+ROUTER_MODEL_ID     = "mistralai/mistral-7b-instruct:free" # Now using Mistral 7B Instruct (free tier) as the router
+
 MAX_TOKENS          = {"A":16_000,"B":8_000,"C":16_000,"D":8_000,"E":4_000,"F":8_000}
 
 PLAN = {
     "A": (6,45,180), "B": (2,15,60), "C": (1,8,30),
-    "D": (3,25,100),"E": (1,10,40), "F": (999_999,50,190)
+    "D": (3,25,100),"E": (1,10,40), "F": (999_999,50,190) # Plan for Model F (Gemini Flash)
 }
-EMOJI = {"A":"🌟","B":"🔷","C":"🟥","D":"🟢","E":"🟡","F":"🌀"}
+EMOJI = {"A":"🌟","B":"🔷","C":"🟥","D":"🟢","E":"🟡","F":"🌀"} # Emoji for Model F (Gemini Flash)
 TZ    = ZoneInfo("Australia/Sydney")
 
-# Descriptions for the router model
+# Descriptions for the router model (these describe the models in MODEL_MAP)
 MODEL_DESCRIPTIONS = {
     "A": "🌟 (google/gemini-2.5-pro-preview) – anything truly mission-critical or creative where you crave top quality. Expensive.",
     "B": "🔷 (openai/o4-mini) – mid-stakes reasoning, good for slow and reasonably cheap responses. Cheap.",
     "C": "🟥 (openai/chatgpt-4o-latest) – for queries needing nice formatting or empathetic responses. Expensive.",
     "D": "🟢 (deepseek/deepseek-r1) – brainstorming, writing - good when you need cheap reasoning. Cheap.",
     "E": "🟡 (x-ai/grok-3-beta) – when you want an edgier style or a second opinion on reasoning. Expensive.",
-    "F": "🌀 (google/gemini-2.5-flash-preview) – clarifications, follow-ups, and most general use; effectively free."
+    "F": "🌀 (google/gemini-2.5-flash-preview) – clarifications, follow-ups, and most general use; effectively free." # Description for model F
 }
 
 
@@ -155,7 +157,6 @@ def route_choice(user_msg, allowed_model_keys):
         logging.warning("route_choice called with no allowed_model_keys. Returning None.")
         return None
 
-    # Build the detailed system prompt for the router
     system_prompt_lines = [
         "You are an intelligent model routing assistant. Your task is to choose the most suitable Large Language Model for the user's query.",
         "Based on the user's message, select ONLY ONE model letter from the following list of *currently available* models.",
@@ -165,7 +166,8 @@ def route_choice(user_msg, allowed_model_keys):
         if key in MODEL_DESCRIPTIONS:
             system_prompt_lines.append(f"- {key}: {MODEL_DESCRIPTIONS[key]}")
         else:
-            system_prompt_lines.append(f"- {key}: (No description available)") # Fallback
+            # This case should ideally not happen if MODEL_DESCRIPTIONS is comprehensive for MODEL_MAP
+            system_prompt_lines.append(f"- {key}: ({MODEL_MAP.get(key, 'Unknown Model')}) No specific description available.")
 
     system_prompt_lines.append("\nConsider the user's query carefully and choose the model letter that best fits the query's nature, complexity, and implied cost-sensitivity or quality requirement based on these descriptions.")
     system_prompt_lines.append("Respond with ONLY the single capital letter corresponding to your choice. No other text, explanation, or punctuation.")
@@ -178,16 +180,16 @@ def route_choice(user_msg, allowed_model_keys):
     ]
     
     payload_for_router = {
-        "model": ROUTER_MODEL_ID,
+        "model": ROUTER_MODEL_ID, # This is now "mistralai/mistral-7b-instruct:free"
         "messages": msgs_for_router
         # NO "max_tokens" here for the router's own output.
-        # Optionally, add temperature for router, e.g., "temperature": 0.2 for more deterministic routing
+        # Optionally, "temperature": 0.1 or similar for more deterministic routing
     }
     try:
         logging.info(f"Calling router model {ROUTER_MODEL_ID} with allowed keys: {allowed_model_keys}.")
-        # Log the system prompt for the router to verify it's correct (can be verbose)
-        # logging.debug(f"Router System Prompt: {final_system_prompt}")
-        # logging.debug(f"Router User Message: {user_msg}")
+        # To see the exact prompt sent to the router:
+        # logging.info(f"Router System Prompt: {final_system_prompt}")
+        # logging.info(f"Router User Message: {user_msg}")
 
         r = api_post(payload_for_router)
         r.raise_for_status()
@@ -196,12 +198,11 @@ def route_choice(user_msg, allowed_model_keys):
         raw_router_response_text = response_json.get("choices",[{}])[0].get("message",{}).get("content","").strip().upper()
         logging.info(f"Router model ({ROUTER_MODEL_ID}) raw response: '{raw_router_response_text}'")
 
-        # Extract the first valid character that is an allowed key
         chosen_key = None
         for char_code in raw_router_response_text:
             if char_code in allowed_model_keys:
                 chosen_key = char_code
-                break # Found the first valid choice
+                break 
 
         if chosen_key:
             logging.info(f"Router successfully chose model key: {chosen_key}")
@@ -250,7 +251,7 @@ if "credits_ts" not in st.session_state or \
 
 # ───────── Sidebar UI ─────────────────────────────
 with st.sidebar:
-    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=48)
+    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v4", width=48) # Corrected URL from s=200&v=4
     st.title("OpenRouter Chat")
 
     if st.button("➕  New chat", use_container_width=True):
@@ -281,15 +282,16 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("Model-routing map")
-    st.caption(f"Router engine: **{ROUTER_MODEL_ID}**") # Uses actual model ID for router
+    st.caption(f"Router engine: **{ROUTER_MODEL_ID}**") # This will now show the Mistral model ID
     with st.expander("Letters → Models (Descriptions for Router)"):
-        for key, desc in MODEL_DESCRIPTIONS.items():
-            st.markdown(f"**{key}**: {desc} `(Max Output: {MAX_TOKENS.get(key, 'N/A')})`")
-
+        for key_desc, desc_val in MODEL_DESCRIPTIONS.items(): # Iterate MODEL_DESCRIPTIONS to ensure order and content match what router sees
+             # Check if key_desc is actually in MODEL_MAP to avoid errors if MODEL_DESCRIPTIONS has extra keys
+            if key_desc in MODEL_MAP:
+                st.markdown(f"**{key_desc}**: {desc_val} `(Max Output: {MAX_TOKENS.get(key_desc, 'N/A')})`")
 
     with st.expander("Account stats (credits)"):
         if st.button("Refresh Credits", key="refresh_credits_btn"):
-            update_credits_state() # Consider st.rerun() if immediate update needed
+            update_credits_state()
         if st.session_state.CRED_TOTAL is None: st.warning("Couldn’t fetch /credits endpoint.")
         else:
             st.markdown(f"**Purchased:** {st.session_state.CRED_TOTAL:.2f} cr")
@@ -325,12 +327,11 @@ if prompt := st.chat_input("Ask anything…"):
         if chosen_route_key is None or chosen_route_key not in MODEL_MAP:
             st.error(f"❗ Model routing failed or no models available. Defaulting or check logs.")
             logging.error(f"Routing failed critically. chosen_route_key: {chosen_route_key}. Allowed: {allowed_model_keys}. Defaulting to first if available.")
-            chosen_route_key = allowed_model_keys[0] if allowed_model_keys else None # Ensure a fallback if routing truly fails badly
+            chosen_route_key = allowed_model_keys[0] if allowed_model_keys else None
             if not chosen_route_key:
-                 st.error("❗ No models available to fallback to.") # Should not happen if allowed_model_keys was not empty
-                 # End current turn processing here if no model can be chosen
-            
-        if chosen_route_key: # Proceed if a model key was determined
+                 st.error("❗ No models available to fallback to.")
+        
+        if chosen_route_key:
             actual_model_id = MODEL_MAP[chosen_route_key]
             max_output_tokens_for_selected_model = MAX_TOKENS[chosen_route_key]
 
