@@ -257,32 +257,33 @@ def load_custom_css():
             font-size: 0.7rem !important; text-transform: uppercase;
             font-weight: 600; color: #A0AEC0;
             margin-top: 1.5rem; margin-bottom: 0.75rem; letter-spacing: 0.05em;
+            padding-left: 0.1rem; /* Align with model usage items */
         }
         html[data-theme="light"] [data-testid="stSidebar"] h3 { color: #718096; }
 
-        /* Styling for st.expander in sidebar - you might need to adjust selectors if Streamlit changes its structure */
+        /* Styling for st.expander in sidebar */
         [data-testid="stSidebar"] .stExpander {
-            border: none !important; /* Remove default border for a cleaner look in sidebar */
-            margin-left: -0.5rem; /* Align expander title better with other sidebar items if needed */
+            border: none !important;
+            margin-left: -0.5rem;
             margin-right: -0.5rem;
         }
         [data-testid="stSidebar"] .stExpander header {
-            padding: 0.75rem 0.5rem !important; /* Adjust padding for expander header */
+            padding: 0.75rem 0.5rem !important;
             font-size: 0.7rem !important; text-transform: uppercase;
             font-weight: 600; color: #A0AEC0;
             letter-spacing: 0.05em;
-            border-bottom: none !important; /* Remove border below header */
+            border-bottom: none !important;
             background-color: transparent !important;
         }
         html[data-theme="light"] [data-testid="stSidebar"] .stExpander header { color: #718096; }
         [data-testid="stSidebar"] .stExpander header:hover {
-            background-color: rgba(255,255,255,0.05) !important; /* Subtle hover for expander header */
+            background-color: rgba(255,255,255,0.05) !important;
         }
         html[data-theme="light"] [data-testid="stSidebar"] .stExpander header:hover {
             background-color: rgba(0,0,0,0.03) !important;
         }
         [data-testid="stSidebar"] .stExpander div[data-testid="stExpanderDetails"] {
-            padding: 0rem 0.5rem 0.75rem 0.5rem; /* Padding for content within expander */
+            padding: 0rem 0.5rem 0.75rem 0.5rem;
         }
 
 
@@ -338,14 +339,17 @@ def load_custom_css():
             background-color: color-mix(in srgb, var(--primary-color) 10%, transparent) !important;
         }
 
+        /* MODIFIED: Sidebar buttons (chat list) text alignment */
         [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {
             border-radius: 6px; border: none;
             padding: 0.6rem 0.75rem; font-size: 0.875rem; font-weight: 400;
             background-color: transparent; color: #CBD5E0;
             transition: background-color 0.2s, color 0.2s, border-left-color 0.2s;
-            width: 100%; margin-bottom: 0.2rem; text-align: left;
+            width: 100%; margin-bottom: 0.2rem;
             display: flex; align-items: center; gap: 8px;
             border-left: 3px solid transparent;
+            justify-content: flex-start !important; /* Ensure content aligns left */
+            text-align: left; /* Ensure text within button content is left-aligned */
         }
         html[data-theme="light"] [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) { color: #4A5568; }
 
@@ -358,11 +362,13 @@ def load_custom_css():
             border-left-color: #CBD5E0;
         }
 
+        /* Active chat button still needs justify-content */
         [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):has(span:contains("🔹")) {
             color: var(--primary-color) !important;
             background-color: color-mix(in srgb, var(--primary-color) 10%, transparent);
             border-left: 3px solid var(--primary-color);
             font-weight: 500;
+            justify-content: flex-start !important; /* Ensure active also aligns left */
         }
 
         [data-testid="stSidebar"] .stCaption {
@@ -393,27 +399,32 @@ def load_custom_css():
             font-size: 1rem; color: var(--text-color-secondary); max-width: 450px; line-height: 1.6;
         }
 
+        /* MODIFIED: User Input Bar Styling */
         [data-testid="stChatInput"] {
-            background-color: #2D3748; /* MODIFIED: Match textarea background */
-            border-top: 1px solid #4A5568; /* MODIFIED: Use textarea's border color for consistency */
-            padding: 0.75rem 1rem;
+            background-color: #2D3748 !important; /* Bar background matches textarea background */
+            border-top: 1px solid #4A5568 !important; /* Bar top border matches textarea border */
+            padding: 0.75rem 1rem !important; /* Padding for the bar */
             position: sticky; bottom: 0;
         }
         html[data-theme="light"] [data-testid="stChatInput"] {
-            background-color: #FFFFFF; /* MODIFIED: Match textarea light theme background */
-            border-top-color: #CBD5E0; /* MODIFIED: Match textarea light theme border color */
+            background-color: #FFFFFF !important; /* Light theme bar background */
+            border-top-color: #CBD5E0 !important; /* Light theme bar top border */
         }
 
         [data-testid="stChatInput"] textarea {
             border-radius: 8px !important;
-            border: 1px solid #4A5568 !important;
-            background-color: #2D3748 !important; /* Original: #2D3748 */
+            border: 1px solid #4A5568 !important; /* Textarea border */
+            background-color: #2D3748 !important; /* Textarea background (should match stChatInput) */
             color: #E2E8F0 !important;
-            padding: 10px 14px !important;
+            padding: 10px 14px !important; /* Padding inside textarea */
             line-height: 1.5 !important;
+            box-shadow: none !important; /* Remove any default shadow */
+            margin: 0 !important; /* Ensure no margin creating gaps */
         }
         html[data-theme="light"] [data-testid="stChatInput"] textarea {
-            border-color: #CBD5E0 !important; background-color: #FFFFFF !important; color: #2D3748 !important;
+            border-color: #CBD5E0 !important;
+            background-color: #FFFFFF !important; /* Textarea background (should match stChatInput light) */
+            color: #2D3748 !important;
         }
         [data-testid="stChatInput"] textarea:focus {
             border-color: var(--primary-color) !important;
@@ -440,12 +451,13 @@ def load_custom_css():
         html[data-theme="light"] [data-testid^="stChatMessageAssistant"] { background-color: #E9ECF2; color: #2D3748; }
         [data-testid^="stChatMessageAssistant"] .stMarkdown p, [data-testid^="stChatMessageAssistant"] .stMarkdown li { color: inherit !important; }
 
-        .stExpander { /* General expander styling, might affect main content expanders */
+        /* General expander styling (e.g., for Account Credits) */
+        .stExpander {
             border: 1px solid #2D3748; border-radius: 8px; margin-bottom: 1rem;
             background-color: transparent;
         }
         html[data-theme="light"] .stExpander { border-color: #CBD5E0; }
-        .stExpander header { /* General expander header styling */
+        .stExpander header {
             font-weight: 500; font-size: 0.8rem; padding: 0.5rem 0.8rem !important;
             background-color: rgba(45, 55, 72, 0.5);
             border-bottom: 1px solid #2D3748;
@@ -498,7 +510,6 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # MODIFIED: Model Usage section is now collapsible
     with st.expander("Model Usage (Daily)", expanded=True):
         active_model_keys = sorted(MODEL_MAP.keys())
         for m_key in active_model_keys:
@@ -544,7 +555,7 @@ with st.sidebar:
 
     st.subheader("Chats")
     sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
-    for sid_key_loop in sorted_sids: # Renamed to avoid conflict with outer scope sid_key if any
+    for sid_key_loop in sorted_sids:
         title = sessions[sid_key_loop].get("title", "Untitled")
         display_title_text = title[:28] + ("…" if len(title) > 28 else "")
 
@@ -591,7 +602,7 @@ else:
     for msg_idx, msg in enumerate(chat_history):
         role = msg["role"]; avatar = "👤"
         if role == "assistant":
-            model_key_hist = msg.get("model") # Use different variable name
+            model_key_hist = msg.get("model")
             avatar = FALLBACK_MODEL_EMOJI if model_key_hist == FALLBACK_MODEL_KEY else EMOJI.get(model_key_hist, EMOJI.get("F", "🤖"))
         with st.chat_message(role, avatar=avatar): st.markdown(msg["content"])
 
@@ -620,13 +631,11 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
             logging.warning(f"Router returned invalid key '{chosen_model_key_for_response}' or it's not in MODEL_MAP. Forcing fallback.")
             use_fallback = True
             chosen_model_key_for_response = FALLBACK_MODEL_KEY
-            # model_id_to_use, etc., remain as fallback values
 
     if use_fallback:
-        # This message appears if fallback was due to no quotas OR router failure
         st.info(f"{FALLBACK_MODEL_EMOJI} Using fallback model: {FALLBACK_MODEL_ID.split('/')[-1]}")
         logging.info(f"Using fallback model: {FALLBACK_MODEL_ID}")
-        chosen_model_key_for_response = FALLBACK_MODEL_KEY # Ensure it's marked correctly
+        chosen_model_key_for_response = FALLBACK_MODEL_KEY
 
     response_content, api_ok = "", True
 
@@ -651,12 +660,11 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
         _delete_unused_blank_sessions(keep_sid=current_sid)
 
     _save(SESS_FILE, sessions)
-    st.rerun() # Use st.rerun()
+    st.rerun()
 
 # ───────────────────────── Self-Relaunch ──────────────────────
 if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
     os.environ["_IS_STRL"] = "1"; port = os.getenv("PORT", "8501")
-    # Check if port is already in use before trying to relaunch (simple check)
     try:
         import socket
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
