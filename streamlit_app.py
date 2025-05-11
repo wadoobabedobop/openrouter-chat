@@ -34,47 +34,23 @@ TAVILY_SEARCH_BASE = "https://api.tavily.com/v1/search"
 # Fallback Model Configuration (used when other quotas are exhausted)
 
 FALLBACK_MODEL_ID = "deepseek/deepseek-chat-v3-0324:free"
-FALLBACK_MODEL_KEY = "*FALLBACK*"  # Internal key, not for display in jars or regular selection
-FALLBACK_MODEL_EMOJI = "🆓"        # Emoji for the fallback model
-FALLBACK_MODEL_MAX_TOKENS = 8000   # Max output tokens for the fallback model
+FALLBACK_MODEL_KEY = "*FALLBACK*"
+FALLBACK_MODEL_EMOJI = "🆓"
+FALLBACK_MODEL_MAX_TOKENS = 8000
 
 # Model definitions (standard, quota-tracked models)
-
 MODEL_MAP = {
-    "A": "google/gemini-2.5-pro-preview",
-    "B": "openai/o4-mini",
-    "C": "openai/chatgpt-4o-latest",
-    "D": "deepseek/deepseek-r1",
+    "A": "google/gemini-2.5-pro-preview", "B": "openai/o4-mini",
+    "C": "openai/chatgpt-4o-latest", "D": "deepseek/deepseek-r1",
     "F": "google/gemini-2.5-flash-preview"
 }
-
-# Router uses Mistral 7B Instruct
-
 ROUTER_MODEL_ID = "mistralai/mistral-7b-instruct:free"
-
-# Token limits for outputs
-
-MAX_TOKENS = {
-    "A": 16_000, "B": 8_000, "C": 16_000,
-    "D": 8_000, "F": 8_000
-}
-
-# Quota plan: (daily, weekly, monthly) messages
-
+MAX_TOKENS = {"A": 16_000, "B": 8_000, "C": 16_000, "D": 8_000, "F": 8_000}
 PLAN = {
-    "A": (10, 10 * 7, 10 * 30),
-    "B": (5, 5 * 7, 5 * 30),
-    "C": (1, 1 * 7, 1 * 30),
-    "D": (4, 4 * 7, 4 * 30),
-    "F": (180, 500, 2000)
+    "A": (10, 70, 300), "B": (5, 35, 150), "C": (1, 7, 30),
+    "D": (4, 28, 120), "F": (180, 500, 2000)
 }
-
-# Emojis for jars (does not include fallback model)
-
 EMOJI = { "A": "🌟", "B": "🔷", "C": "🟥", "D": "🟢", "F": "🌀" }
-
-# Descriptions shown to the router (does not include fallback model)
-
 MODEL_DESCRIPTIONS = {
     "A": "🌟 (gemini-2.5-pro-preview) – top-quality, creative, expensive.",
     "B": "🔷 (o4-mini) – mid-stakes reasoning, cost-effective.",
@@ -82,103 +58,65 @@ MODEL_DESCRIPTIONS = {
     "D": "🟢 (deepseek-r1) – cheap factual reasoning.",
     "F": "🌀 (gemini-2.5-flash-preview) – quick, free-tier, general purpose."
 }
-
-# Timezone for weekly/monthly resets
 TZ = ZoneInfo("Australia/Sydney")
-
-# Paths for persistence
 DATA_DIR   = Path(__file__).parent
 SESS_FILE  = DATA_DIR / "chat_sessions.json"
 QUOTA_FILE = DATA_DIR / "quotas.json"
 
 # ──────────────────────── Helper Functions ───────────────────────
-
 def _load(path: Path, default):
-    try:
-        return json.loads(path.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
-        return default
-
-def _save(path: Path, obj):
-    path.write_text(json.dumps(obj, indent=2))
-
-def _today():
-    return date.today().isoformat()
-
-def _yweek():
-    return datetime.now(TZ).strftime("%G-%V")
-
-def _ymonth():
-    return datetime.now(TZ).strftime("%Y-%m")
+    try: return json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError): return default
+def _save(path: Path, obj): path.write_text(json.dumps(obj, indent=2))
+def _today(): return date.today().isoformat()
+def _yweek(): return datetime.now(TZ).strftime("%G-%V")
+def _ymonth(): return datetime.now(TZ).strftime("%Y-%m")
 
 # ───────────────────── Quota Management ────────────────────────
-
 def _reset(block: dict, key: str, stamp: str, zeros: dict):
     active_zeros = {k: 0 for k in MODEL_MAP}
-    if block.get(key) != stamp:
-        block[key] = stamp
-        block[f"{key}_u"] = active_zeros.copy()
+    if block.get(key) != stamp: block[key] = stamp; block[f"{key}_u"] = active_zeros.copy()
 
 def _load_quota():
     zeros = {k: 0 for k in MODEL_MAP}
     q = _load(QUOTA_FILE, {})
-    for period_usage_key in ("d_u", "w_u", "m_u"):
-        if period_usage_key in q:
-            current_usage_dict = q[period_usage_key]
-            keys_to_remove = [k for k in current_usage_dict if k not in MODEL_MAP]
-            for k_rem in keys_to_remove:
-                del current_usage_dict[k_rem]
-                logging.info(f"Removed old model key '{k_rem}' from quota usage '{period_usage_key}'.")
-    _reset(q, "d", _today(), zeros)
-    _reset(q, "w", _yweek(), zeros)
-    _reset(q, "m", _ymonth(), zeros)
-    _save(QUOTA_FILE, q)
-    return q
-
+    for pukey in ("d_u", "w_u", "m_u"):
+        if pukey in q:
+            udict = q[pukey]
+            for k_rem in [k for k in udict if k not in MODEL_MAP]: del udict[k_rem]
+    _reset(q, "d", _today(), zeros); _reset(q, "w", _yweek(), zeros); _reset(q, "m", _ymonth(), zeros)
+    _save(QUOTA_FILE, q); return q
 quota = _load_quota()
 
 def remaining(key: str):
-    ud = quota.get("d_u", {}).get(key, 0)
-    uw = quota.get("w_u", {}).get(key, 0)
-    um = quota.get("m_u", {}).get(key, 0)
-    if key not in PLAN:
-        logging.error(f"Attempted to get remaining quota for unknown key: {key}")
-        return 0, 0, 0
-    ld, lw, lm = PLAN[key]
-    return ld - ud, lw - uw, lm - um
+    ud,uw,um=quota.get("d_u",{}).get(key,0),quota.get("w_u",{}).get(key,0),quota.get("m_u",{}).get(key,0)
+    if key not in PLAN: logging.error(f"Unknown key for remaining: {key}"); return 0,0,0
+    ld,lw,lm = PLAN[key]; return ld-ud,lw-uw,lm-um
 
 def record_use(key: str):
-    if key not in MODEL_MAP:
-        logging.warning(f"Attempted to record usage for unknown or non-standard model key: {key}")
-        return
-    for blk_key in ("d_u", "w_u", "m_u"):
-        if blk_key not in quota:
-            quota[blk_key] = {k: 0 for k in MODEL_MAP}
-        quota[blk_key][key] = quota[blk_key].get(key, 0) + 1
+    if key not in MODEL_MAP: logging.warning(f"Record use for non-standard key: {key}"); return
+    for blk in ("d_u","w_u","m_u"):
+        if blk not in quota: quota[blk]={k:0 for k in MODEL_MAP}
+        quota[blk][key]=quota[blk].get(key,0)+1
     _save(QUOTA_FILE, quota)
 
 # ───────────────────── Session Management ───────────────────────
-
 sessions = _load(SESS_FILE, {})
-
 def _new_sid():
-    sid = str(int(time.time() * 1000))
-    sessions[sid] = {"title": "New chat", "messages": []}
-    _save(SESS_FILE, sessions)
-    return sid
-
-def _autoname(seed: str) -> str:
-    words = seed.strip().split()
-    cand = " ".join(words[:3]) or "Chat"
-    return (cand[:25] + "…") if len(cand) > 25 else cand
+    sid = str(int(time.time()*1000)); sessions[sid]={"title":"New chat","messages":[]}; _save(SESS_FILE,sessions); return sid
+def _autoname(seed:str)->str:
+    cand = " ".join(seed.strip().split()[:3]) or "Chat"; return (cand[:25]+"…") if len(cand)>25 else cand
 
 # ─────────────────────────── Logging ────────────────────────────
 # Set to logging.DEBUG for very detailed agent loop messages during development
+# Add %(filename)s:%(lineno)d to format for easier debugging
+LOGGING_LEVEL = logging.INFO # CHANGE TO logging.DEBUG for detailed logs
 logging.basicConfig(
-    level=logging.INFO,  # Can be set to logging.DEBUG for dev
-    format="%(asctime)s | %(levelname)-8s | %(message)s",
+    level=LOGGING_LEVEL,
+    format="%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(message)s",
     stream=sys.stdout
 )
+
 
 # ─────────────────── API Calls, Search & Agent Logic ───────────────────
 
@@ -187,10 +125,12 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
-    log_info = {k: v for k, v in payload.items() if k != "messages"} # Avoid logging full message history
-    log_info["num_messages"] = len(payload.get("messages", []))
-    first_message_role = payload.get("messages",[{}])[0].get("role", "unknown")
-    logging.debug(f"API POST -> model={payload.get('model')}, stream={stream}, first_msg_role={first_message_role}, details: {log_info}")
+    # Selective logging for api_post to avoid overly verbose message history in routine calls
+    # More detailed payload logging is done within run_agentic_chat if LOGGING_LEVEL is DEBUG
+    log_summary = {k: v for k, v in payload.items() if k != "messages"}
+    log_summary["num_messages"] = len(payload.get("messages", []))
+    logging.debug(f"API POST (Summary) -> model={payload.get('model')}, stream={stream}, details: {log_summary}")
+
     return requests.post(
         f"{OPENROUTER_API_BASE}/chat/completions",
         headers=headers, json=payload, stream=stream, timeout=timeout
@@ -202,26 +142,23 @@ def search_tavily(query: str, limit: int = 5) -> dict:
         "Authorization": f"Bearer {TAVILY_API_KEY}",
         "Content-Type": "application/json"
     }
-    # Tavily POST request body uses 'query' and 'max_results' according to their API docs
     json_payload = {
-        "query": query,
-        "max_results": limit,
-        "include_answer": True,       # Request Tavily's concise answer if available
-        "include_raw_content": False  # Usually not needed for chat, reduces token count
+        "query": query, "max_results": limit,
+        "include_answer": True, "include_raw_content": False
     }
     try:
         r = requests.post(TAVILY_SEARCH_BASE, headers=headers, json=json_payload, timeout=15)
         r.raise_for_status()
         results = r.json()
-        logging.info(f"TAVILY SEARCH SUCCESS: Results count: {len(results.get('results',[]))}, Answer available: {'yes' if results.get('answer') else 'no'}")
+        logging.info(f"TAVILY SEARCH SUCCESS: Results count: {len(results.get('results',[]))}, Answer: {'yes' if results.get('answer') else 'no'}")
         return results
     except Exception as e:
-        logging.error(f"TAVILY SEARCH FAILED: {e}")
-        return {"error": str(e), "results": []} # Ensure 'results' key exists for consistent error handling by agent
+        logging.error(f"TAVILY SEARCH FAILED: {e}", exc_info=True)
+        return {"error": str(e), "results": []}
 
 
 FUNCTIONS = [{
-    "name": "search_web", # Name of the function the model will call
+    "name": "search_web",
     "description": (
         "Search the web for recent information, current events, or specific facts. "
         "Use this tool whenever a user's query explicitly or implicitly asks for up-to-date information "
@@ -230,443 +167,260 @@ FUNCTIONS = [{
     "parameters": {
         "type": "object",
         "properties": {
-            "query": {
-                "type": "string",
-                "description": "A concise and specific search query to find the required information. Be as specific as possible for best results."
-            },
-            "limit": {
-                "type": "integer",
-                "description": "Maximum number of search results to return (default is 3, maximum is 10)."
-            }
-        },
-        "required": ["query"] # 'query' is mandatory
+            "query": {"type": "string", "description": "A concise and specific search query. Be as specific as possible."},
+            "limit": {"type": "integer", "description": "Max number of search results (default 3, max 10)."}
+        }, "required": ["query"]
     }
 }]
 
 def run_agentic_chat(model: str, messages: list, max_tokens_out: int):
-    interaction = messages.copy() # Work on a copy to not modify original session history directly
+    interaction = messages.copy()
 
-    # --- System Prompt Construction for Reliable Tool Use ---
     base_personality = "You are a helpful and friendly assistant."
     tool_guidance = (
         "You have a special capability: the 'search_web' tool. This tool allows you to access real-time information from the internet. "
         "**You MUST use the 'search_web' tool when the user's query implies a need for:**\n"
-        "- Current events (e.g., 'What's today's news?', 'latest updates on topic X', 'recent developments in Y')\n"
-        "- Real-time data (e.g., 'current stock price of AAPL', 'weather in London right now', 'live scores for game Z')\n"
-        "- Specific facts or information that is very likely to be newer than your knowledge cutoff or highly dynamic.\n"
-        "**Do NOT attempt to answer these types of questions from your internal knowledge alone.** If you don't know something that requires fresh information, use the search tool.\n\n"
-        "When you decide to use 'search_web':\n"
-        "1. Provide a clear and effective 'query' in the arguments.\n"
-        "2. You can optionally specify a 'limit' for the number of results (default is 3 if not specified).\n"
-        "After the search results are provided back to you (as a new message with role 'function'), use them to formulate your final answer to the user. "
-        "If the search results are unhelpful or don't contain the answer, clearly state that.\n\n"
-        "For general conversation, creative tasks, summarization of provided text, or questions about information likely to be stable and within your general training data, you can answer directly without necessarily using tools."
+        "- Current events (e.g., 'What's today's news?', 'latest updates on topic X')\n"
+        "- Real-time data (e.g., 'current stock price of Y', 'weather in city Z right now')\n"
+        "- Specific facts or information very likely to be newer than your training data.\n"
+        "**Do NOT attempt to answer these types of questions from your internal knowledge alone.** "
+        "When using 'search_web', formulate a clear and effective 'query'. You can also specify a 'limit' for results (default is 3). "
+        "After receiving search results, use them to construct your final answer. If search results are unhelpful, state that clearly. "
+        "For general conversation, creative tasks, or questions about information likely within your training data, you can answer directly without using tools."
     )
     final_system_prompt_content = f"{base_personality}\n\n{tool_guidance}"
 
-    # Ensure this system prompt is the first message and is correctly set
     if not interaction or interaction[0].get("role") != "system":
         interaction.insert(0, {"role": "system", "content": final_system_prompt_content})
-    else:
-        # If a system message exists, overwrite its content to prioritize our tool guidance
+    else: 
         interaction[0]["content"] = final_system_prompt_content
         logging.debug("AGENT: Overwrote existing system prompt with tool guidance.")
 
-    max_tool_uses = 3  # Limit iterations to prevent runaway loops or excessive cost
-    tool_uses_count = 0
+    max_tool_uses = 3; tool_uses_count = 0
 
     while tool_uses_count < max_tool_uses:
-        logging.debug(f"AGENT LOOP (Iteration {tool_uses_count + 1}/{max_tool_uses}): Sending to API. Current interaction depth: {len(interaction)}")
-        # For detailed debugging, uncomment to see the exact messages sent:
-        # logging.debug(f"AGENT INTERACTION (Iteration {tool_uses_count + 1}):\n{json.dumps(interaction, indent=2)}")
+        current_iteration_info = f"AGENT LOOP (Iteration {tool_uses_count + 1}/{max_tool_uses})"
+        logging.debug(f"{current_iteration_info}: Sending to API. Interaction depth: {len(interaction)}")
 
-        payload = {
-            "model": model,
-            "messages": interaction,
-            "max_tokens": max_tokens_out,
-            "functions": FUNCTIONS,
-            "function_call": "auto",  # Let the model decide if/when to call the search tool
-            "stream": False           # Agentic turns are simpler handled non-streamed for now
+        payload_to_send = {
+            "model": model, "messages": interaction, "max_tokens": max_tokens_out,
+            "functions": FUNCTIONS, "function_call": "auto", "stream": False
         }
+        if LOGGING_LEVEL == logging.DEBUG: # Log full payload only if DEBUG is on
+            logging.debug(f"{current_iteration_info}: Payload to OpenRouter API:\n{json.dumps(payload_to_send, indent=2)}")
+
+        response_data = None # Initialize to ensure it's defined for finally block or error logging
         try:
-            resp = api_post(payload)
-            resp.raise_for_status()
-            response_data = resp.json()
+            resp = api_post(payload_to_send)
+            resp.raise_for_status() # Raises HTTPError for 4xx/5xx responses
+            response_data = resp.json() # Parse JSON response
         except requests.exceptions.HTTPError as e:
-            err_msg = f"HTTP {e.response.status_code}: {e.response.text}"
-            logging.error(f"AGENT LOOP API HTTPError: {err_msg}")
-            return f"❗ **API Error in Agent Loop**: {err_msg}"
-        except Exception as e:
-            logging.error(f"AGENT LOOP API call failed: {e}")
-            return f"❗ **API Error in Agent Loop**: {str(e)}"
+            err_body = "No response body or not text."
+            if e.response is not None: err_body = e.response.text
+            err_msg = f"HTTP {e.response.status_code if e.response is not None else 'Unknown'}: {err_body}"
+            logging.error(f"{current_iteration_info}: API HTTPError: {err_msg}", exc_info=True)
+            if LOGGING_LEVEL == logging.DEBUG: logging.error(f"Failed payload was:\n{json.dumps(payload_to_send, indent=2)}")
+            return f"❗ **API Error (Agent Loop)**: {err_msg}"
+        except json.JSONDecodeError as e:
+            logging.error(f"{current_iteration_info}: API JSONDecodeError: {e}. Response text: {resp.text if 'resp' in locals() else 'Response object not available'}", exc_info=True)
+            if LOGGING_LEVEL == logging.DEBUG: logging.error(f"Failed payload was:\n{json.dumps(payload_to_send, indent=2)}")
+            return f"❗ **API Error (Agent Loop)**: Could not decode API's JSON response. {resp.text[:200] if 'resp' in locals() else ''}"
+        except Exception as e: # Catch other unexpected errors (network issues, etc.)
+            logging.error(f"{current_iteration_info}: API call failed (Generic Exception): {e}", exc_info=True)
+            if LOGGING_LEVEL == logging.DEBUG: logging.error(f"Failed payload was:\n{json.dumps(payload_to_send, indent=2)}")
+            return f"❗ **API Error (Agent Loop)**: An unexpected error occurred: {str(e)}"
 
-        if not response_data.get("choices") or not response_data["choices"][0].get("message"):
-            logging.error(f"AGENT LOOP: Unexpected API response structure: {response_data}")
-            return "❗ **API Error**: Received an unexpected response from the model."
+        # --- CRITICAL CHECK for expected response structure ---
+        if not isinstance(response_data, dict) or \
+           not response_data.get("choices") or \
+           not isinstance(response_data["choices"], list) or \
+           not response_data["choices"] or \
+           not isinstance(response_data["choices"][0], dict) or \
+           "message" not in response_data["choices"][0] or \
+           not isinstance(response_data["choices"][0]["message"], dict):
 
-        choice = response_data["choices"][0]["message"]
+            logging.error(f"{current_iteration_info}: Unexpected API response structure.")
+            # Log the ENTIRE problematic response_data for diagnosis
+            logging.error(f"Full problematic response data:\n{json.dumps(response_data, indent=2)}")
+            if LOGGING_LEVEL == logging.DEBUG: logging.error(f"Payload that resulted in this unexpected response:\n{json.dumps(payload_to_send, indent=2)}")
+
+            # Check if OpenRouter provided a specific error object within the malformed response
+            if isinstance(response_data, dict) and "error" in response_data:
+                api_error_detail = response_data["error"]
+                if isinstance(api_error_detail, dict):
+                    api_error_message = api_error_detail.get("message", json.dumps(api_error_detail))
+                else:
+                    api_error_message = str(api_error_detail)
+                logging.error(f"{current_iteration_info}: API returned an error object: {api_error_message}")
+                return f"❗ **API Error**: {api_error_message}"
+            return "❗ **API Error**: Received an improperly structured response from the model. Please check the application logs for details."
+
+        choice = response_data["choices"][0]["message"] # Now confident this structure exists
 
         if choice.get("function_call"):
+            # (Function call handling logic - unchanged from previous correct version)
             tool_uses_count += 1
-            fc = choice["function_call"]
-            tool_name = fc["name"]
-            logging.info(f"AGENT: Model wants to call function '{tool_name}' with args: {fc.get('arguments')}")
-
-            # Safety break: if max tool uses reached and it's another search, guide it to synthesize
+            fc = choice["function_call"]; tool_name = fc["name"]
+            logging.info(f"{current_iteration_info}: Model wants to call '{tool_name}' with args: {fc.get('arguments')}")
             if tool_uses_count >= max_tool_uses and tool_name == "search_web":
-                 logging.warning(f"AGENT: Max tool uses ({max_tool_uses}) reached. Forcing model to synthesize response without new search.")
-                 interaction.append(choice) # Append the model's request to call the function
-                 interaction.append({
-                     "role": "function",
-                     "name": tool_name,
-                     "content": json.dumps({"error": "Maximum tool uses reached. Please formulate a response based on information gathered so far or clearly state what you are still missing."})
-                 })
-                 # The loop will continue, and the next iteration will hit the outer 'tool_uses_count < max_tool_uses' check
+                 logging.warning(f"{current_iteration_info}: Max tool uses ({max_tool_uses}) reached. Forcing synthesis.")
+                 interaction.append(choice) 
+                 interaction.append({"role":"function", "name":tool_name, "content": json.dumps({"error": "Max tool uses. Please synthesize answer."})})
                  continue
-
-            try:
-                args = json.loads(fc["arguments"])
+            try: args = json.loads(fc["arguments"])
             except json.JSONDecodeError:
-                logging.error(f"AGENT: Failed to parse function arguments JSON: {fc.get('arguments')}")
-                interaction.append(choice) # Append model's malformed request
-                interaction.append({"role": "function", "name": tool_name, "content": json.dumps({"error": "Invalid function call arguments: Not valid JSON."})})
-                continue # Let model retry or acknowledge error
-
+                logging.error(f"{current_iteration_info}: Bad JSON args for {tool_name}: {fc.get('arguments')}", exc_info=True)
+                interaction.append(choice); interaction.append({"role":"function", "name":tool_name, "content":json.dumps({"error":"Invalid JSON args"})}); continue            
             if tool_name == "search_web":
-                query = args.get("query")
-                limit = args.get("limit", 3) # Use a default limit for search if not provided by model
-                if not query:
-                    logging.warning("AGENT: 'search_web' called without a query.")
-                    tool_result_content = json.dumps({"error": "Search query is required but was not provided."})
-                else:
-                    tool_result_content = json.dumps(search_tavily(query, limit))
+                query = args.get("query"); limit = args.get("limit", 3) 
+                if not query: tool_result_content = json.dumps({"error":"Search query required."})
+                else: tool_result_content = json.dumps(search_tavily(query, limit))
+                interaction.append(choice); interaction.append({"role":"function", "name":tool_name, "content":tool_result_content})
+            else: # Unknown function
+                logging.warning(f"{current_iteration_info}: Unknown function called: {tool_name}")
+                interaction.append(choice); interaction.append({"role":"function", "name":tool_name, "content":json.dumps({"error":f"Unknown function: {tool_name}"})})
+            continue 
 
-                interaction.append(choice) # Append model's request to call the function
-                interaction.append({"role": "function", "name": tool_name, "content": tool_result_content})
-                # Loop again: model will see the function result and continue
-            else:
-                logging.warning(f"AGENT: Model called an unknown function: {tool_name}")
-                interaction.append(choice) # Append model's request
-                interaction.append({"role": "function", "name": tool_name, "content": json.dumps({"error": f"The function '{tool_name}' is not a known or available tool."})})
-            continue # Continue to next iteration of the while loop to let model process tool result or error
-
-        # If no function_call, it should be a final assistant text response
         final_content = choice.get("content")
         if final_content is not None:
-            logging.info(f"AGENT LOOP: Finished. Model provided final text response.")
+            logging.info(f"{current_iteration_info}: Loop finished, final response: '{final_content[:100]}...'");
             return final_content
-        else:
-            # This case (no function call, no content) should be rare with good models
-            logging.warning("AGENT LOOP: Model returned no function call and no content. Returning a placeholder message.")
-            return "I am unable to provide a specific response at this time. Please try rephrasing your request."
 
-    # If loop finishes due to max_tool_uses without a final content response
-    logging.warning(f"AGENT LOOP: Exited due to max tool uses ({max_tool_uses}) without a direct final content response. Attempting one last synthesis.")
-    # Add a user message to prompt for a final answer based on gathered info
-    interaction.append({
-        "role": "user",
-        "content": "Based on our conversation and any information gathered from tools so far, please provide your best final answer now. If you still cannot answer the original request, please explain why."
-    })
-    payload_final_attempt = {
-        "model": model,
-        "messages": interaction,
-        "max_tokens": max_tokens_out,
-        "stream": False # No functions expected here, just direct answer
-    }
+        # Fallback if no content and no function call (should be rare)
+        logging.warning(f"{current_iteration_info}: No function call and no content in message. Full choice: {json.dumps(choice, indent=2)}")
+        return "The model's response was empty or not in the expected format. Please try again."
+
+    # After loop: Max tool uses reached
+    logging.warning(f"AGENT: Exited due to max tool uses ({max_tool_uses}). Attempting final synthesis.")
+    interaction.append({"role":"user", "content":"Based on our conversation and information gathered, provide your best final answer. If unable, explain why."})
+    payload_final = {"model":model, "messages":interaction, "max_tokens":max_tokens_out, "stream":False}
+    if LOGGING_LEVEL == logging.DEBUG: logging.debug(f"AGENT (Final Attempt): Payload:\n{json.dumps(payload_final, indent=2)}")
     try:
-        resp_final = api_post(payload_final_attempt)
-        resp_final.raise_for_status()
-        final_choice = resp_final.json()["choices"][0]["message"]
-        final_answer_content = final_choice.get("content", "I have reached my operational limit for using tools in this turn and cannot fully process your request with further searches at this moment.")
-        logging.info(f"AGENT LOOP: Forced final response after max tool uses: '{final_answer_content[:100]}...'")
-        return final_answer_content
+        resp_final = api_post(payload_final); resp_final.raise_for_status()
+        response_data_final = resp_final.json()
+        if isinstance(response_data_final, dict) and \
+           response_data_final.get("choices") and isinstance(response_data_final["choices"], list) and \
+           response_data_final["choices"] and isinstance(response_data_final["choices"][0], dict) and \
+           "message" in response_data_final["choices"][0] and isinstance(response_data_final["choices"][0]["message"], dict):
+            final_choice_msg = response_data_final["choices"][0]["message"]
+            return final_choice_msg.get("content", "Max tool uses reached; final response was empty.")
+        else:
+            logging.error(f"AGENT (Final Attempt): Unexpected structure: {json.dumps(response_data_final, indent=2)}")
+            return "Max tool uses; error forming final summary (unexpected final structure)."
     except Exception as e_final:
-        logging.error(f"AGENT LOOP: Failed to get forced final response after max tool uses: {e_final}")
-        return "I have reached my operational limit for tool usage and encountered an issue while trying to provide a final summary. Please try again or rephrase."
+        logging.error(f"AGENT (Final Attempt): Failed forced final response: {e_final}", exc_info=True)
+        return "Max tool uses; error in final summarization."
 
-
-# Streamed (simple, non-agentic) - kept for reference or if direct streaming becomes an option
-def streamed(model: str, messages: list, max_tokens_out: int):
-    payload = {"model": model, "messages": messages, "stream": True, "max_tokens": max_tokens_out}
-    with api_post(payload, stream=True) as r:
-        try:
-            r.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            text = r.text
-            logging.error(f"Stream HTTPError {e.response.status_code}: {text}")
-            yield None, f"HTTP {e.response.status_code}: {text}"
-            return
-
-        for line in r.iter_lines():
-            if not line:
-                continue
-            line_str = line.decode("utf-8")
-            if line_str.startswith(": OPENROUTER PROCESSING"):
-                logging.info(f"OpenRouter PING: {line_str.strip()}")
-                continue
-            if not line_str.startswith("data: "):
-                logging.warning(f"Unexpected non-event-stream line: {line_str}")
-                continue
-            data = line_str[6:].strip()
-            if data == "[DONE]":
-                break
-            try:
-                chunk = json.loads(data)
-            except json.JSONDecodeError:
-                logging.error(f"Bad JSON chunk: {data}")
-                yield None, "Error decoding response chunk"
-                return
-            if "error" in chunk:
-                msg = chunk["error"].get("message", "Unknown API error")
-                logging.error(f"API chunk error: {msg}")
-                yield None, msg
-                return
-            delta = chunk["choices"][0]["delta"].get("content")
-            if delta is not None:
-                yield delta, None
 
 # ───────────────────────── Model Routing ───────────────────────
-
 def route_choice(user_msg: str, allowed: list[str]) -> str:
-    if not allowed:
-        logging.warning("route_choice called with empty allowed list. Defaulting to 'F'.")
-        return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else FALLBACK_MODEL_KEY)
-
-    if len(allowed) == 1:
-        logging.info(f"Router: Only one model allowed ('{allowed[0]}'), selecting it directly.")
-        return allowed[0]
-
-    system_lines = [
-        "You are an intelligent model-routing assistant.",
-        "Select ONLY one letter from the following available models (A, B, C, D, F):"
-    ]
+    if not allowed: return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else FALLBACK_MODEL_KEY)
+    if len(allowed)==1: return allowed[0]
+    sys_lines = ["You are an intelligent model-routing assistant. Select ONLY one letter from available models (A,B,C,D,F):"]
     for k in allowed:
-        if k in MODEL_DESCRIPTIONS:
-            system_lines.append(f"- {k}: {MODEL_DESCRIPTIONS[k]}")
-        else:
-            logging.warning(f"Model key '{k}' found in 'allowed' list but not in MODEL_DESCRIPTIONS.")
-
-    system_lines.extend([
-        "Based on the user's query, choose the letter that best balances quality, speed, and cost-sensitivity.",
-        "Consider if the query implies a need for complex reasoning, creativity, factual recall, or just a quick general response.",
-        "Respond with ONLY the single capital letter corresponding to your choice. No extra text or explanation."
-    ])
-    router_messages = [
-        {"role": "system", "content": "\n".join(system_lines)},
-        {"role": "user",   "content": user_msg}
-    ]
-    payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10}
+        if k in MODEL_DESCRIPTIONS: sys_lines.append(f"- {k}: {MODEL_DESCRIPTIONS[k]}")
+    sys_lines.extend(["Based on user's query, choose letter for best balance of quality, speed, cost. Consider if query needs reasoning, creativity, facts, or quick general response. ONLY the single capital letter."])
+    router_msgs = [{"role":"system","content":"\n".join(sys_lines)}, {"role":"user","content":user_msg}]
+    payload_r = {"model":ROUTER_MODEL_ID, "messages":router_msgs, "max_tokens":10}
     try:
-        r = api_post(payload_r)
-        r.raise_for_status()
+        r = api_post(payload_r); r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"].strip().upper()
         logging.info(f"Router raw response: '{text}'")
-        for ch_char_code in text: # Iterate through characters of the response
-            if ch_char_code in allowed:
-                logging.info(f"Router selected model: '{ch_char_code}'")
-                return ch_char_code
-        logging.warning(f"Router response '{text}' did not contain an allowed model key. Allowed: {allowed}")
-    except Exception as e:
-        logging.error(f"Router call error: {e}")
-
-    # Smarter fallback: if F is allowed, prefer it. Otherwise, first in allowed list.
+        for ch in text:
+            if ch in allowed: logging.info(f"Router selected: '{ch}'"); return ch
+        logging.warning(f"Router response '{text}' invalid for allowed: {allowed}")
+    except Exception as e: logging.error(f"Router call error: {e}", exc_info=True)
     fallback_choice = "F" if "F" in allowed else allowed[0]
-    logging.warning(f"Router failed to get valid choice or errored. Fallback to model: '{fallback_choice}'")
+    logging.warning(f"Router falling back to: '{fallback_choice}'")
     return fallback_choice
 
 # ───────────────────── Credits Endpoint ───────────────────────
-
 def get_credits():
     try:
-        r = requests.get(
-            f"{OPENROUTER_API_BASE}/credits",
-            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-            timeout=10
-        )
-        r.raise_for_status()
-        d = r.json()["data"]
-        return d["total_credits"], d["total_usage"], d["total_credits"] - d["total_usage"]
-    except Exception as e:
-        logging.warning(f"Could not fetch /credits: {e}")
-        return None, None, None
+        r = requests.get(f"{OPENROUTER_API_BASE}/credits", headers={"Authorization":f"Bearer {OPENROUTER_API_KEY}"}, timeout=10)
+        r.raise_for_status(); d = r.json()["data"]; return d["total_credits"], d["total_usage"], d["total_credits"]-d["total_usage"]
+    except Exception as e: logging.warning(f"Could not fetch /credits: {e}", exc_info=True); return None,None,None
 
-# ───────────────────────── Streamlit UI ────────────────────────
-st.set_page_config(
-    page_title="OpenRouter Chat",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-if "sid" not in st.session_state:
-    st.session_state.sid = _new_sid()
+# ───────────────────────── Streamlit UI (largely unchanged) ────────────────────────
+st.set_page_config(page_title="OpenRouter Chat", layout="wide", initial_sidebar_state="expanded")
+if "sid" not in st.session_state: st.session_state.sid = _new_sid()
 if "credits" not in st.session_state:
-    st.session_state.credits = dict(zip(
-        ("total", "used", "remaining"),
-        get_credits()
-    ))
-    st.session_state.credits_ts = time.time()
+    st.session_state.credits=dict(zip(("total","used","remaining"),get_credits())); st.session_state.credits_ts=time.time()
 
-# ───────────────────────── Sidebar UI ───────────────────────────
-with st.sidebar:
-    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50)
-    st.title("OpenRouter Chat")
-
+with st.sidebar: 
+    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4",width=50); st.title("OpenRouter Chat")
     st.subheader("Daily Jars (Msgs Left)")
-    active_model_keys_sorted = sorted(MODEL_MAP.keys()) # Iterate only over active models
-    cols = st.columns(len(active_model_keys_sorted))
-    for i, m_key in enumerate(active_model_keys_sorted):
-        left, _, _ = remaining(m_key)
-        lim, _, _  = PLAN[m_key]
-        pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0)
-        fill = int(pct * 100)
-        color = "#4caf50" if pct > .5 else "#ff9800" if pct > .25 else "#f44336"
-        cols[i].markdown(f"""
-            <div style="width:44px; margin:auto; text-align:center;">
-              <div style="height:60px; border:1px solid #ccc; border-radius:7px; background:#f5f5f5; position:relative; overflow:hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.07), 0 1px 1px rgba(0,0,0,0.05);">
-                <div style="position:absolute; bottom:0; width:100%; height:{fill}%; background:{color}; box-shadow: inset 0 2px 2px rgba(255,255,255,0.3); box-sizing: border-box;"></div>
-                <div style="position:absolute; top:2px; width:100%; font-size:18px; line-height:1;">{EMOJI[m_key]}</div>
-                <div style="position:absolute; bottom:2px; width:100%; font-size:11px; font-weight:bold; color:#555; line-height:1;">{m_key}</div>
-              </div>
-              <span style="display:block; margin-top:4px; font-size:11px; font-weight:600; color:#333; line-height:1;">
-                {'∞' if lim > 900_000 else left}
-              </span>
-            </div>""", unsafe_allow_html=True)
+    active_mk_sorted = sorted(MODEL_MAP.keys()); cols = st.columns(len(active_mk_sorted))
+    for i, mk_key in enumerate(active_mk_sorted):
+        l_rem,_,_=remaining(mk_key); lim_plan,_,_=PLAN[mk_key]; pct_val=1.0 if lim_plan>900_000 else max(0.0,l_rem/lim_plan if lim_plan>0 else 0.0)
+        fill_val=int(pct_val*100); color_val="#4caf50" if pct_val>.5 else "#ff9800" if pct_val>.25 else "#f44336"
+        cols[i].markdown(f"""<div style="width:44px;margin:auto;text-align:center;"><div style="height:60px;border:1px solid #ccc;border-radius:7px;background:#f5f5f5;position:relative;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,0.07),0 1px 1px rgba(0,0,0,0.05);"><div style="position:absolute;bottom:0;width:100%;height:{fill_val}%;background:{color_val};box-shadow:inset 0 2px 2px rgba(255,255,255,0.3);"></div><div style="position:absolute;top:2px;width:100%;font-size:18px;">{EMOJI[mk_key]}</div><div style="position:absolute;bottom:2px;width:100%;font-size:11px;font-weight:bold;color:#555;">{mk_key}</div></div><span style="display:block;margin-top:4px;font-size:11px;font-weight:600;color:#333;">{'∞' if lim_plan>900_000 else l_rem}</span></div>""",unsafe_allow_html=True)
     st.markdown("---")
-
-    if st.button("➕ New chat", use_container_width=True):
-        st.session_state.sid = _new_sid()
-        st.rerun()
-
-    st.subheader("Chats")
-    sorted_sids_list = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
-    for sid_key in sorted_sids_list:
-        title_text = sessions[sid_key]["title"][:25] + ("…" if len(sessions[sid_key]["title"]) > 25 else "") or "Untitled"
-        if st.button(title_text, key=f"session_button_{sid_key}", use_container_width=True):
-            if st.session_state.sid != sid_key:
-                st.session_state.sid = sid_key
-                st.rerun()
-    st.markdown("---")
-
-    st.subheader("Model-Routing Map")
-    st.caption(f"Router engine: `{ROUTER_MODEL_ID}`")
+    if st.button("➕ New chat",use_container_width=True): st.session_state.sid=_new_sid(); st.rerun()
+    st.subheader("Chats"); sorted_sids_list = sorted(sessions.keys(),key=lambda s_item:int(s_item),reverse=True)
+    for sid_k in sorted_sids_list:
+        title_disp = sessions[sid_k]["title"][:25]+("…" if len(sessions[sid_k]["title"])>25 else "") or "Untitled"
+        if st.button(title_disp,key=f"sb_{sid_k}",use_container_width=True):
+            if st.session_state.sid!=sid_k: st.session_state.sid=sid_k; st.rerun()
+    st.markdown("---"); st.subheader("Model-Routing Map"); st.caption(f"Router: `{ROUTER_MODEL_ID}`")
     with st.expander("Letters → Models"):
-        for k_model in sorted(MODEL_MAP.keys()): # Iterate only over active models
-            st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
-    st.markdown("---")
-
-    tot_cred, used_cred, rem_cred = st.session_state.credits["total"], st.session_state.credits["used"], st.session_state.credits["remaining"]
-    with st.expander("Account stats (credits)", expanded=False):
-        if st.button("Refresh Credits", key="refresh_credits_button_sidebar"):
-            st.session_state.credits = dict(zip(("total","used","remaining"), get_credits()))
-            st.session_state.credits_ts = time.time()
-            tot_cred, used_cred, rem_cred = st.session_state.credits["total"], st.session_state.credits["used"], st.session_state.credits["remaining"]
-            st.rerun()
-        if tot_cred is None:
-            st.warning("Could not fetch credits.")
-        else:
-            st.markdown(f"**Purchased:** {tot_cred:.2f} cr")
-            st.markdown(f"**Used:** {used_cred:.2f} cr")
-            st.markdown(f"**Remaining:** {rem_cred:.2f} cr")
-            try:
-                last_updated_str_sidebar = datetime.fromtimestamp(st.session_state.credits_ts).strftime('%Y-%m-%d %H:%M:%S')
-                st.caption(f"Last updated: {last_updated_str_sidebar}")
-            except TypeError:
-                st.caption("Last updated: N/A")
+        for k_mod in sorted(MODEL_MAP.keys()): st.markdown(f"**{k_mod}**: {MODEL_DESCRIPTIONS[k_mod]} (max_out={MAX_TOKENS[k_mod]:,})")
+    st.markdown("---"); tot_c,used_c,rem_c = st.session_state.credits["total"],st.session_state.credits["used"],st.session_state.credits["remaining"]
+    with st.expander("Account stats (credits)"):
+        if st.button("Refresh Credits", key="refresh_credits_sidebar"):
+            st.session_state.credits=dict(zip(("total","used","remaining"),get_credits())); st.session_state.credits_ts=time.time()
+            tot_c,used_c,rem_c = st.session_state.credits["total"],st.session_state.credits["used"],st.session_state.credits["remaining"]; st.rerun()
+        if tot_c is None: st.warning("Could not fetch credits.")
+        else: st.markdown(f"**Purchased:** {tot_c:.2f} cr\n\n**Used:** {used_c:.2f} cr\n\n**Remaining:** {rem_c:.2f} cr")
+        try: st.caption(f"Last updated: {datetime.fromtimestamp(st.session_state.credits_ts).strftime('%Y-%m-%d %H:%M:%S')}")
+        except: st.caption("Last updated: N/A")
 
 # ────────────────────────── Main Chat Panel ─────────────────────
 current_sid = st.session_state.sid
-if current_sid not in sessions: # Should ideally not happen if UI is used correctly
-    st.error("Selected chat session not found. Creating a new one.")
-    current_sid = _new_sid()
-    st.session_state.sid = current_sid
-    st.rerun()
-
+if current_sid not in sessions: 
+    st.error("Chat session not found. New one created."); current_sid=_new_sid(); st.session_state.sid=current_sid; st.rerun()
 chat_history = sessions[current_sid]["messages"]
 
-# Display chat messages from history
-# Function calls and their results (role: "function") are part of chat_history for the agent,
-# but we generally don't display them directly to the user in the chat UI for cleanliness.
-for msg_idx, msg_data in enumerate(chat_history):
-    role = msg_data["role"]
-    avatar_char = "👤" # Default for user
-    if role == "assistant":
-        model_key_used_for_msg = msg_data.get("model", FALLBACK_MODEL_KEY) # Get actual model key stored
-        avatar_char = FALLBACK_MODEL_EMOJI if model_key_used_for_msg == FALLBACK_MODEL_KEY else EMOJI.get(model_key_used_for_msg, "🤖")
-        with st.chat_message(role, avatar=avatar_char):
-            st.markdown(msg_data["content"])
-    elif role == "user":
-        with st.chat_message(role, avatar=avatar_char):
-            st.markdown(msg_data["content"])
-    # We skip displaying messages with role "function" or other internal roles
+for msg_data in chat_history: 
+    role_msg = msg_data["role"]
+    if role_msg=="user": avatar_disp="👤"
+    elif role_msg=="assistant": avatar_disp = FALLBACK_MODEL_EMOJI if msg_data.get("model")==FALLBACK_MODEL_KEY else EMOJI.get(msg_data.get("model","F"), "🤖")
+    else: continue 
+    with st.chat_message(role_msg, avatar=avatar_disp): st.markdown(msg_data["content"])
 
 if prompt := st.chat_input("Ask anything…"):
-    # Append user message to main history immediately. The agent will use this copy.
-    chat_history.append({"role": "user", "content": prompt})
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(prompt)
+    chat_history.append({"role":"user", "content":prompt})
+    with st.chat_message("user", avatar="👤"): st.markdown(prompt)
 
-    # Determine model to use (routing or fallback)
-    allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
+    allowed_std_mods = [k for k in MODEL_MAP if remaining(k)[0]>0]
+    use_fb_flag=False; chosen_mdl_key=FALLBACK_MODEL_KEY; mdl_id_api_call=FALLBACK_MODEL_ID
+    max_tok_api_call=FALLBACK_MODEL_MAX_TOKENS; avatar_assist_resp=FALLBACK_MODEL_EMOJI
 
-    use_fallback_model_flag = False
-    chosen_model_key_for_api_call = FALLBACK_MODEL_KEY # Default to fallback
-    model_id_to_use_for_api_call = FALLBACK_MODEL_ID
-    max_tokens_for_api_call = FALLBACK_MODEL_MAX_TOKENS
-    avatar_for_assistant_response = FALLBACK_MODEL_EMOJI
-
-    if not allowed_standard_models:
-        st.info(f"{FALLBACK_MODEL_EMOJI} All standard model daily quotas exhausted. Using free fallback model.")
-        use_fallback_model_flag = True
-        logging.info(f"All standard quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
+    if not allowed_std_mods:
+        st.info(f"{FALLBACK_MODEL_EMOJI} Quotas exhausted. Using fallback model."); use_fb_flag=True
+        logging.info(f"All standard quotas used. Using fallback: {FALLBACK_MODEL_ID}")
     else:
-        routed_key_result = route_choice(prompt, allowed_standard_models)
-        chosen_model_key_for_api_call = routed_key_result
-        model_id_to_use_for_api_call = MODEL_MAP[chosen_model_key_for_api_call]
-        max_tokens_for_api_call = MAX_TOKENS[chosen_model_key_for_api_call]
-        avatar_for_assistant_response = EMOJI[chosen_model_key_for_api_call]
+        routed_k = route_choice(prompt, allowed_std_mods)
+        chosen_mdl_key=routed_k; mdl_id_api_call=MODEL_MAP[chosen_mdl_key]
+        max_tok_api_call=MAX_TOKENS[chosen_mdl_key]; avatar_assist_resp=EMOJI[chosen_mdl_key]
 
-    with st.chat_message("assistant", avatar=avatar_for_assistant_response):
-        spinner_text = f"Thinking with {model_id_to_use_for_api_call.split('/')[-1].split(':')[0]}..."
-        if chosen_model_key_for_api_call != FALLBACK_MODEL_KEY: # Add model letter if not fallback
-            spinner_text += f" (Model {chosen_model_key_for_api_call})"
-        with st.spinner(spinner_text):
-            # Run agentic chat - it handles potential tool calls and returns the final answer.
-            # It uses the `chat_history` which now includes the latest user prompt.
-            final_answer_from_agent = run_agentic_chat(model_id_to_use_for_api_call, chat_history, max_tokens_for_api_call)
-        st.markdown(final_answer_from_agent)
+    with st.chat_message("assistant", avatar=avatar_assist_resp):
+        spinner_txt = f"Thinking with {mdl_id_api_call.split('/')[-1].split(':')[0]}..."
+        if chosen_mdl_key != FALLBACK_MODEL_KEY: spinner_txt += f" ({chosen_mdl_key})"
+        with st.spinner(spinner_txt):
+            final_ans = run_agentic_chat(mdl_id_api_call, chat_history, max_tok_api_call)
+        st.markdown(final_ans)
 
-    # Append final assistant message to history.
-    # `run_agentic_chat` appends tool call/result messages to its *internal* `interaction` copy.
-    # We only save the *final* user-facing assistant response to the main `chat_history`.
-    chat_history.append({
-        "role": "assistant",
-        "content": final_answer_from_agent,
-        "model": chosen_model_key_for_api_call # Store which model (key) produced this
-    })
-
-    # We assume run_agentic_chat completed okay if it didn't return an error string
-    api_call_was_successful = not final_answer_from_agent.startswith("❗ **API Error")
-
-    if api_call_was_successful:
-        if not use_fallback_model_flag: # Only record use for standard, non-fallback models
-            record_use(chosen_model_key_for_api_call)
-
-        if sessions[current_sid]["title"] == "New chat":
-            # Use the original user prompt for autonaming, even if agent searched
-            user_prompts_in_history = [m["content"] for m in chat_history if m["role"] == "user"]
-            sessions[current_sid]["title"] = _autoname(user_prompts_in_history[-1] if user_prompts_in_history else "Chat")
-
-    _save(SESS_FILE, sessions)
-    st.rerun() # Rerun to update UI with new messages and possibly new title/quota
+    chat_history.append({"role":"assistant", "content":final_ans, "model":chosen_mdl_key})
+    api_call_ok = not final_ans.startswith("❗ **API Error")
+    if api_call_ok and not use_fb_flag: record_use(chosen_mdl_key)
+    if sessions[current_sid]["title"]=="New chat":
+        user_prompts_hist=[m["content"] for m in chat_history if m["role"]=="user"]
+        sessions[current_sid]["title"]=_autoname(user_prompts_hist[-1] if user_prompts_hist else "Chat")
+    _save(SESS_FILE, sessions); st.rerun()
 
 # ───────────────────────── Self-Relaunch ──────────────────────
 if __name__ == "__main__" and os.getenv("_IS_STRL") != "1":
-    os.environ["_IS_STRL"] = "1"
-    port = os.getenv("PORT", "8501")
-    cmd = [
-        sys.executable, "-m", "streamlit", "run", __file__,
-        "--server.port", port,
-        "--server.address", "0.0.0.0",
-    ]
-    logging.info(f"Relaunching with Streamlit: {' '.join(cmd)}")
-    subprocess.run(cmd, check=False)
+    os.environ["_IS_STRL"]="1"; port_num=os.getenv("PORT","8501")
+    cmd_list=[sys.executable,"-m","streamlit","run",__file__,"--server.port",port_num,"--server.address","0.0.0.0"]
+    logging.info(f"Relaunching: {' '.join(cmd_list)}"); subprocess.run(cmd_list, check=False)
