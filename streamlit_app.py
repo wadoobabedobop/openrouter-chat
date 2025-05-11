@@ -16,11 +16,10 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 # ───────── Basic config ─────
-OPENROUTER_API_KEY  = "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" # Replace if this is a placeholder
+OPENROUTER_API_KEY  = "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" # Replace if placeholder
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT     = 120
 
-# YOUR ORIGINAL MODEL_MAP
 MODEL_MAP = {
     "A": "google/gemini-2.5-pro-preview",
     "B": "openai/o4-mini",
@@ -30,7 +29,6 @@ MODEL_MAP = {
     "F": "google/gemini-2.5-flash-preview"      # also used for router
 }
 ROUTER_MODEL_ID     = MODEL_MAP["F"]
-# Max TOKENS for OUTPUT of the main LLM.
 MAX_TOKENS          = {"A":16_000,"B":8_000,"C":16_000,"D":8_000,"E":4_000,"F":8_000}
 
 PLAN = {
@@ -39,6 +37,17 @@ PLAN = {
 }
 EMOJI = {"A":"🌟","B":"🔷","C":"🟥","D":"🟢","E":"🟡","F":"🌀"}
 TZ    = ZoneInfo("Australia/Sydney")
+
+# Descriptions for the router model
+MODEL_DESCRIPTIONS = {
+    "A": "🌟 (google/gemini-2.5-pro-preview) – anything truly mission-critical or creative where you crave top quality. Expensive.",
+    "B": "🔷 (openai/o4-mini) – mid-stakes reasoning, good for slow and reasonably cheap responses. Cheap.",
+    "C": "🟥 (openai/chatgpt-4o-latest) – for queries needing nice formatting or empathetic responses. Expensive.",
+    "D": "🟢 (deepseek/deepseek-r1) – brainstorming, writing - good when you need cheap reasoning. Cheap.",
+    "E": "🟡 (x-ai/grok-3-beta) – when you want an edgier style or a second opinion on reasoning. Expensive.",
+    "F": "🌀 (google/gemini-2.5-flash-preview) – clarifications, follow-ups, and most general use; effectively free."
+}
+
 
 # ───────── Files ────────────
 DATA_DIR   = Path(__file__).parent
@@ -101,22 +110,21 @@ logging.basicConfig(level=logging.INFO,format="%(asctime)s | %(levelname)s | %(m
 
 def api_post(payload, *, stream=False, timeout=DEFAULT_TIMEOUT):
     h={"Authorization":f"Bearer {OPENROUTER_API_KEY}","Content-Type":"application/json"}
-    # Simplified logging for payload to avoid excessive length
     logged_payload_info = {k: (v if k != "messages" else f"<{len(v)} messages>") for k, v in payload.items()}
-    logging.info(f"API POST to /chat/completions. Model: {payload.get('model')}, Stream: {stream}, Payload keys: {list(payload.keys())}")
+    logging.info(f"API POST to /chat/completions. Model: {payload.get('model')}, Stream: {stream}, Max_tokens: {payload.get('max_tokens')}")
     if "messages" in payload and payload["messages"]:
-         logging.info(f"  First user message (truncated): {str(next((m.get('content') for m in payload['messages'] if m.get('role') == 'user'), 'N/A'))[:100]}")
+        first_msg_content = str(payload['messages'][0].get('content',''))[:200] if payload['messages'] else "No messages"
+        logging.info(f"  First message (truncated): {first_msg_content}...")
     return requests.post(f"{OPENROUTER_API_BASE}/chat/completions",
                          headers=h,json=payload,stream=stream,timeout=timeout)
 
 # ───────── OpenRouter helpers ─
-# This function is for the MAIN LLM response and NEEDS max_tokens
 def streamed(model_id, msgs, max_tokens_for_model_output):
     p = {
         "model": model_id,
         "messages": msgs,
         "stream": True,
-        "max_tokens": max_tokens_for_model_output  # CRITICAL: Max tokens for the *output* of the main LLM
+        "max_tokens": max_tokens_for_model_output
     }
     with api_post(p,stream=True) as r:
         try:
@@ -126,73 +134,89 @@ def streamed(model_id, msgs, max_tokens_for_model_output):
             logging.error(f"API Error during stream for model {model_id}: {e}. Response: {error_content}")
             yield None, f"API Error ({e.response.status_code}): {error_content}"
             return
-
         for ln in r.iter_lines():
             if not ln: continue
             if ln.startswith(b"data: "):
                 data=ln[6:].decode('utf-8').strip()
                 if data=="[DONE]": break
-                try:
-                    chunk=json.loads(data)
+                try: chunk=json.loads(data)
                 except json.JSONDecodeError:
-                    logging.error(f"Failed to decode JSON chunk: '{data}'")
-                    yield None, "Error decoding stream data."
-                    return
+                    logging.error(f"Failed to decode JSON chunk: '{data}'"); yield None, "Error decoding stream data."; return
                 if "error" in chunk:
                     err_msg = chunk["error"].get("message","Unknown error from API in stream")
-                    logging.error(f"Stream chunk error for model {model_id}: {err_msg}")
-                    yield None, err_msg; return
+                    logging.error(f"Stream chunk error for model {model_id}: {err_msg}"); yield None, err_msg; return
                 delta_content = chunk.get("choices",[{}])[0].get("delta",{}).get("content")
-                if delta_content is not None:
-                    yield delta_content, None
-            else:
-                logging.warning(f"Unexpected non-event-stream line: {ln}")
+                if delta_content is not None: yield delta_content, None
+            else: logging.warning(f"Unexpected non-event-stream line: {ln}")
 
 
-# REVERTED route_choice to be like your original. No max_tokens in its own API call.
-def route_choice(user_msg, allowed_model_keys): # allowed_model_keys are "A", "B", etc.
+def route_choice(user_msg, allowed_model_keys):
     if not allowed_model_keys:
         logging.warning("route_choice called with no allowed_model_keys. Returning None.")
         return None
 
-    # Original simple prompt structure
-    # The router model needs to see the full user_msg to make its choice.
-    # We do NOT specify max_tokens for the router's output here; let it use its default.
-    # The parsing logic `for ch in text:` will find the first valid character.
-    router_prompt_text = f"Choose ONE of {allowed_model_keys}. No explanation."
+    # Build the detailed system prompt for the router
+    system_prompt_lines = [
+        "You are an intelligent model routing assistant. Your task is to choose the most suitable Large Language Model for the user's query.",
+        "Based on the user's message, select ONLY ONE model letter from the following list of *currently available* models.",
+        "Here are the descriptions of the available models (model letter, emoji, actual model ID, description):"
+    ]
+    for key in allowed_model_keys:
+        if key in MODEL_DESCRIPTIONS:
+            system_prompt_lines.append(f"- {key}: {MODEL_DESCRIPTIONS[key]}")
+        else:
+            system_prompt_lines.append(f"- {key}: (No description available)") # Fallback
+
+    system_prompt_lines.append("\nConsider the user's query carefully and choose the model letter that best fits the query's nature, complexity, and implied cost-sensitivity or quality requirement based on these descriptions.")
+    system_prompt_lines.append("Respond with ONLY the single capital letter corresponding to your choice. No other text, explanation, or punctuation.")
+    
+    final_system_prompt = "\n".join(system_prompt_lines)
+
     msgs_for_router = [
-        {"role": "system", "content": router_prompt_text},
-        {"role": "user", "content": user_msg} # The actual user's prompt
+        {"role": "system", "content": final_system_prompt},
+        {"role": "user", "content": user_msg}
     ]
     
     payload_for_router = {
-        "model": ROUTER_MODEL_ID, # ROUTER_MODEL_ID is MODEL_MAP["F"]
+        "model": ROUTER_MODEL_ID,
         "messages": msgs_for_router
         # NO "max_tokens" here for the router's own output.
+        # Optionally, add temperature for router, e.g., "temperature": 0.2 for more deterministic routing
     }
     try:
-        logging.info(f"Calling router model {ROUTER_MODEL_ID} with user message (first 100 chars): '{user_msg[:100]}...' and allowed keys: {allowed_model_keys}")
-        r = api_post(payload_for_router) # stream=False is default
+        logging.info(f"Calling router model {ROUTER_MODEL_ID} with allowed keys: {allowed_model_keys}.")
+        # Log the system prompt for the router to verify it's correct (can be verbose)
+        # logging.debug(f"Router System Prompt: {final_system_prompt}")
+        # logging.debug(f"Router User Message: {user_msg}")
+
+        r = api_post(payload_for_router)
         r.raise_for_status()
         response_json = r.json()
         
         raw_router_response_text = response_json.get("choices",[{}])[0].get("message",{}).get("content","").strip().upper()
         logging.info(f"Router model ({ROUTER_MODEL_ID}) raw response: '{raw_router_response_text}'")
 
-        for char_code in raw_router_response_text: # Iterate through characters in response
+        # Extract the first valid character that is an allowed key
+        chosen_key = None
+        for char_code in raw_router_response_text:
             if char_code in allowed_model_keys:
-                logging.info(f"Router successfully chose model key: {char_code}")
-                return char_code
-        
-        logging.warning(f"Router model did not return a valid choice from {allowed_model_keys} in its response '{raw_router_response_text}'. Falling back to first allowed: {allowed_model_keys[0]}.")
-        return allowed_model_keys[0] # Original fallback
+                chosen_key = char_code
+                break # Found the first valid choice
+
+        if chosen_key:
+            logging.info(f"Router successfully chose model key: {chosen_key}")
+            return chosen_key
+        else:
+            logging.warning(f"Router model did not return a valid choice from {allowed_model_keys} in its response '{raw_router_response_text}'. Falling back to first allowed: {allowed_model_keys[0]}.")
+            return allowed_model_keys[0]
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"Router API call to {ROUTER_MODEL_ID} failed: {e}. Response: {e.response.text if e.response else 'No response'}. Falling back to first allowed: {allowed_model_keys[0] if allowed_model_keys else 'None'}.")
+        err_resp_text = e.response.text if e.response else "No response"
+        logging.error(f"Router API call to {ROUTER_MODEL_ID} failed: {e}. Response: {err_resp_text}. Falling back.")
         return allowed_model_keys[0] if allowed_model_keys else None
-    except (KeyError, IndexError, AttributeError, TypeError) as e: # Added TypeError
-        response_text_for_log = r.text if 'r' in locals() and hasattr(r, 'text') else 'N/A'
-        logging.error(f"Error parsing router response for {ROUTER_MODEL_ID}: {e}. Raw Response: {response_text_for_log}. Falling back to {allowed_model_keys[0] if allowed_model_keys else 'None'}.")
+    except (KeyError, IndexError, AttributeError, TypeError) as e:
+        resp_text_log = r.text if 'r' in locals() and hasattr(r, 'text') else 'N/A'
+        logging.error(f"Error parsing router response for {ROUTER_MODEL_ID}: {e}. Raw Response: {resp_text_log}. Falling back.")
         return allowed_model_keys[0] if allowed_model_keys else None
 
 # ───────── Credit stats (/credits) ─
@@ -257,14 +281,15 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("Model-routing map")
-    st.caption(f"Router engine: **{ROUTER_MODEL_ID}**")
-    with st.expander("Letters → Models"):
-        for k_map,v_map in MODEL_MAP.items():
-            st.markdown(f"**{k_map}** → `{v_map}` (Max Output Tokens: {MAX_TOKENS.get(k_map, 'N/A')})")
+    st.caption(f"Router engine: **{ROUTER_MODEL_ID}**") # Uses actual model ID for router
+    with st.expander("Letters → Models (Descriptions for Router)"):
+        for key, desc in MODEL_DESCRIPTIONS.items():
+            st.markdown(f"**{key}**: {desc} `(Max Output: {MAX_TOKENS.get(key, 'N/A')})`")
+
 
     with st.expander("Account stats (credits)"):
         if st.button("Refresh Credits", key="refresh_credits_btn"):
-            update_credits_state()
+            update_credits_state() # Consider st.rerun() if immediate update needed
         if st.session_state.CRED_TOTAL is None: st.warning("Couldn’t fetch /credits endpoint.")
         else:
             st.markdown(f"**Purchased:** {st.session_state.CRED_TOTAL:.2f} cr")
@@ -295,41 +320,38 @@ if prompt := st.chat_input("Ask anything…"):
         st.error("❗ No models available due to daily quota limits. Please try again later.")
         logging.warning("No models available due to quota limits for current prompt.")
     else:
-        chosen_route_key = route_choice(prompt, allowed_model_keys) # This is "A", "B", etc.
+        chosen_route_key = route_choice(prompt, allowed_model_keys)
 
         if chosen_route_key is None or chosen_route_key not in MODEL_MAP:
-            st.error(f"❗ Model routing failed or no models available. Please check logs or try again.")
-            logging.error(f"Routing failed critically. chosen_route_key: {chosen_route_key}. Allowed: {allowed_model_keys}")
-        else:
+            st.error(f"❗ Model routing failed or no models available. Defaulting or check logs.")
+            logging.error(f"Routing failed critically. chosen_route_key: {chosen_route_key}. Allowed: {allowed_model_keys}. Defaulting to first if available.")
+            chosen_route_key = allowed_model_keys[0] if allowed_model_keys else None # Ensure a fallback if routing truly fails badly
+            if not chosen_route_key:
+                 st.error("❗ No models available to fallback to.") # Should not happen if allowed_model_keys was not empty
+                 # End current turn processing here if no model can be chosen
+            
+        if chosen_route_key: # Proceed if a model key was determined
             actual_model_id = MODEL_MAP[chosen_route_key]
-            # THIS IS THE CRITICAL MAX_TOKENS for the chosen model's *output*
             max_output_tokens_for_selected_model = MAX_TOKENS[chosen_route_key]
 
             with st.chat_message("assistant", avatar=EMOJI.get(chosen_route_key, "🤖")):
                 response_box = st.empty()
                 full_response_content = ""
-                api_messages = list(chat_messages) # Send a copy
+                api_messages = list(chat_messages)
                 stream_successful = True
 
-                # Call `streamed` with the `max_output_tokens_for_selected_model`
                 for chunk, error_msg in streamed(actual_model_id, api_messages, max_output_tokens_for_selected_model):
                     if error_msg:
                         full_response_content = f"❗ **API Error for {actual_model_id}**:\n\n{error_msg}"
                         response_box.error(full_response_content)
                         logging.error(f"Streaming error for model {actual_model_id}: {error_msg}")
-                        stream_successful = False
-                        break 
+                        stream_successful = False; break 
                     if chunk is not None:
                         full_response_content += chunk
                         response_box.markdown(full_response_content + "▌")
-                
                 response_box.markdown(full_response_content)
 
-            chat_messages.append({
-                "role": "assistant",
-                "content": full_response_content,
-                "model_key": chosen_route_key
-            })
+            chat_messages.append({"role": "assistant", "content": full_response_content, "model_key": chosen_route_key})
             
             if stream_successful or not (full_response_content.startswith("❗ **API Error") and "credit" in full_response_content.lower()):
                  record_use(chosen_route_key)
