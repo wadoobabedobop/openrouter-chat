@@ -39,6 +39,7 @@ MODEL_MAP = {
     "F": "google/gemini-2.5-flash-preview"
 }
 ROUTER_MODEL_ID = "mistralai/mistral-7b-instruct:free"
+MAX_HISTORY_CHARS_FOR_ROUTER = 3000  # Approx. 750 tokens for history context
 
 MAX_TOKENS = {
     "A": 16_000, "B": 8_000, "C": 16_000,
@@ -275,33 +276,42 @@ def streamed(model: str, messages: list, max_tokens_out: int):
 
 
 # ------------------------- Model Routing -----------------------
-def route_choice(user_msg: str, allowed: list[str]) -> str:
+def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
     # API key syntactic validity is checked by api_post.
     # api_key_auth_failed will be set by api_post if 401 occurs.
 
-    # Determine a sensible fallback choice early.
-    if "F" in allowed:
-        fallback_choice = "F"
-    elif allowed:
-        fallback_choice = allowed[0]
-    elif "F" in MODEL_MAP: # F might not be in MODEL_MAP if config changes
-        fallback_choice = "F"
-    elif MODEL_MAP:
-        fallback_choice = list(MODEL_MAP.keys())[0]
-    else: # No models defined at all
+    if "F" in allowed: fallback_choice = "F"
+    elif allowed: fallback_choice = allowed[0]
+    elif "F" in MODEL_MAP: fallback_choice = "F"
+    elif MODEL_MAP: fallback_choice = list(MODEL_MAP.keys())[0]
+    else:
         logging.error("Router: No models available in MODEL_MAP for fallback.")
-        return FALLBACK_MODEL_KEY # Or handle this critical state appropriately
+        return FALLBACK_MODEL_KEY
 
     if not allowed:
         logging.warning(f"route_choice called with empty allowed list. Defaulting to '{fallback_choice}'.")
         return fallback_choice
-
     if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed ('{allowed[0]}'), selecting it directly.")
         return allowed[0]
 
-    # --- Detailed guidance for the router model (internal) ---
-    # These are more prescriptive than the user-facing MODEL_DESCRIPTIONS
+    # Construct history context string
+    history_segments = []
+    current_chars = 0
+    # chat_history includes the current user_msg as the last item. We want history *before* it.
+    relevant_history_for_router = chat_history[:-1]
+    for msg in reversed(relevant_history_for_router):
+        role = msg.get("role", "assistant").capitalize()
+        content = msg.get("content", "")
+        segment = f"{role}: {content}\n"
+        if current_chars + len(segment) > MAX_HISTORY_CHARS_FOR_ROUTER:
+            break
+        history_segments.append(segment)
+        current_chars += len(segment)
+    history_context_str = "".join(reversed(history_segments)).strip()
+    if not history_context_str:
+        history_context_str = "No prior conversation history for this session."
+
     ROUTER_MODEL_GUIDANCE = {
         "A": "gemini-2.5-pro-preview (Model A - Highest Cost/Quality): Use for EXTREMELY complex, multi-step reasoning; highly advanced creative generation (e.g., novel excerpts, sophisticated poetry); tasks demanding cutting-edge knowledge and deep nuanced understanding. CHOOSE ONLY if query explicitly demands top-tier, 'genius-level' output AND cheaper models are CLEARLY insufficient. Avoid for anything less.",
         "B": "o4-mini (Model B - Mid-Tier Cost/Quality): Use for general purpose chat; moderate complexity reasoning; summarization; drafting emails/content; brainstorming; standard instruction following. A good balance of capability and cost. CHOOSE if 'F' or 'D' are too basic, AND 'A' or 'C' are overkill/not strictly necessary for the task's core requirements.",
@@ -309,95 +319,64 @@ def route_choice(user_msg: str, allowed: list[str]) -> str:
         "D": "deepseek-r1 (Model D - Low Cost, Factual/Technical): Use for factual Q&A; code generation/explanation/debugging; data extraction; straightforward logical reasoning; technical or scientific queries. Very cost-effective. CHOOSE for tasks that are well-defined, benefit from specialized reasoning, and do not require broad world knowledge, deep creativity, or nuanced conversation. Prefer over B for these specific tasks if cost is a factor.",
         "F": "gemini-2.5-flash-preview (Model F - Lowest Cost, Quick/Simple): Use for very quick, simple Q&A; fast summarization of short texts; basic classification; brief translations; or when speed is paramount and task complexity is very low. Most cost-effective general model. Default starting point for most simple requests."
     }
-
     system_prompt_parts = [
-        "You are an expert AI model routing assistant. Your task is to select the *single most appropriate and cost-effective* model letter from the 'Available Models' list to handle the given 'User Query'.",
+        "You are an expert AI model routing assistant. Your task is to select the *single most appropriate and cost-effective* model letter from the 'Available Models' list to handle the 'Latest User Query' provided at the end. Consider the 'Recent Conversation History' for context.",
         "Strictly adhere to these decision-making principles in order of importance:",
         "1. Maximize Cost-Effectiveness: This is your PRIMARY GOAL. Always prefer a cheaper model (F > D > B > C > A in general cost order) if it can adequately perform the task. Do NOT select expensive models (A, C) unless explicitly justified by the query's extreme complexity and specific requirements that cheaper models demonstrably cannot meet.",
-        "2. Analyze User Query Intent: Deeply understand what the user is trying to achieve, the complexity involved (simple, moderate, high, extreme), the desired output style (factual, creative, conversational), and any implicit needs.",
+        "2. Analyze Latest User Query Intent (in context of history): Deeply understand what the user is trying to achieve with their *latest query*, the complexity involved (simple, moderate, high, extreme), the desired output style (factual, creative, conversational), and any implicit needs, considering the flow of the conversation so far.",
         "3. Match to Model Strengths and Weaknesses as described below."
     ]
-
     system_prompt_parts.append("\nAvailable Models (select one letter):")
     for k_model_key in allowed:
-        # Use the detailed ROUTER_MODEL_GUIDANCE. Fallback to a generic message if a model isn't in our detailed guide.
-        description = ROUTER_MODEL_GUIDANCE.get(k_model_key, f"({MODEL_MAP.get(k_model_key, 'Unknown Model')}) - General purpose. Evaluate based on query and cost guidance.")
+        description = ROUTER_MODEL_GUIDANCE.get(k_model_key, f"({MODEL_MAP.get(k_model_key, 'Unknown Model')}) - General purpose.")
         system_prompt_parts.append(f"- {k_model_key}: {description}")
 
-    system_prompt_parts.append("\nSpecific Selection Guidance (apply rigorously):")
-    if "F" in allowed:
-        system_prompt_parts.append("  - If 'F' is available AND the query is simple (e.g., basic factual question, quick definition, short summary of <200 words, simple classification), CHOOSE 'F'. This is your first consideration for low-complexity tasks.")
-    if "D" in allowed:
-        system_prompt_parts.append("  - If 'D' is available AND the query is primarily factual, technical, code-related (generation, debugging, explanation), or requires straightforward logical deduction, AND 'F' (if available) is too basic for the detail required, STRONGLY PREFER 'D'. 'D' is very cost-effective for these domains.")
-    if "B" in allowed:
-        system_prompt_parts.append("  - If 'B' is available, AND 'F'/'D' (if available) are insufficient for the task's general reasoning, drafting, or moderate creative needs (e.g., writing a standard email, brainstorming ideas, moderately complex Q&A not fitting D's specialty), 'B' is a good general-purpose choice. Prefer 'B' over 'A'/'C' if peak quality/style isn't explicitly demanded or implied by extreme complexity.")
+    system_prompt_parts.append("\nSpecific Selection Guidance (apply rigorously to the 'Latest User Query'):")
+    if "F" in allowed: system_prompt_parts.append("  - If 'F' is available AND the 'Latest User Query' is simple (e.g., basic factual question, quick definition, short summary of <200 words, simple classification), CHOOSE 'F'.")
+    if "D" in allowed: system_prompt_parts.append("  - If 'D' is available AND the 'Latest User Query' is primarily factual, technical, code-related, or requires straightforward logical deduction, AND 'F' (if available) is too basic, STRONGLY PREFER 'D'.")
+    if "B" in allowed: system_prompt_parts.append("  - If 'B' is available, AND 'F'/'D' (if available) are insufficient for the 'Latest User Query's' general reasoning, drafting, or moderate creative needs, 'B' is a good general-purpose choice. Prefer 'B' over 'A'/'C' if peak quality/style isn't explicitly demanded.")
+    system_prompt_parts.append("\n  - Guidance for Expensive Models (A, C) - Use Sparingly for 'Latest User Query':")
+    if "C" in allowed: system_prompt_parts.append("    - CHOOSE 'C' ONLY if the 'Latest User Query' *explicitly requires or strongly implies a need for* a highly polished, empathetic, human-like conversational tone, or involves nuanced, multi-turn creative collaboration where its specific stylistic strengths are indispensable AND 'B' (if available) is clearly inadequate.")
+    if "A" in allowed: system_prompt_parts.append("    - CHOOSE 'A' ONLY if the 'Latest User Query' involves *exceptionally* complex, multi-layered reasoning, requires generation of extensive, high-stakes creative content, or tasks demanding the absolute frontier of AI capability that *no other available model can credibly handle*.")
 
-    system_prompt_parts.append("\n  - Guidance for Expensive Models (A, C) - Use Sparingly:")
-    if "C" in allowed:
-        system_prompt_parts.append("    - CHOOSE 'C' (4o) ONLY if the query *explicitly requires or strongly implies a need for* a highly polished, empathetic, human-like conversational tone, or involves nuanced, multi-turn creative collaboration where its specific stylistic strengths are indispensable (e.g., role-playing as a character, writing a very personal letter), AND 'B' (if available) is clearly inadequate for this specific stylistic requirement. Consider if the query mentions 'tone', 'style', 'empathy', or 'conversation partner'.")
-    if "A" in allowed:
-        system_prompt_parts.append("    - CHOOSE 'A' (Pro) ONLY if the query involves *exceptionally* complex, multi-layered reasoning (e.g., detailed scientific analysis, philosophical debate, complex strategic planning), requires generation of extensive, high-stakes creative content (like writing a detailed story plot, a research paper outline, or sophisticated poetry), or tasks demanding the absolute frontier of AI capability that *no other available model can credibly handle*. The query should signal 'deep', 'comprehensive', 'expert-level', 'highly creative', or 'groundbreaking'.")
+    system_prompt_parts.append("\nRecent Conversation History (context for the 'Latest User Query'):")
+    system_prompt_parts.append(history_context_str)
 
-    system_prompt_parts.append("\nExample Query Analysis (Illustrative - your judgment is key):")
-    system_prompt_parts.append("  - User Query: 'What's the weather in London?' -> If F available, choose F. Else if D available, choose D.")
-    system_prompt_parts.append("  - User Query: 'Write a python function to calculate factorial.' -> If D available, choose D. Else if B available, B.")
-    system_prompt_parts.append("  - User Query: 'Summarize this article [long article text]' -> If F too simple for length, B is good. Avoid A/C.")
-    system_prompt_parts.append("  - User Query: 'I'm feeling down, can you cheer me up?' -> If C available, C is a strong candidate due to empathy. If not, B. Avoid A/D.")
-    system_prompt_parts.append("  - User Query: 'Generate a 1000-word short story about a space explorer finding a new planet, focus on detailed world-building.' -> This is more complex. B might handle it. If 'highly detailed and award-winning quality' is implied, A could be considered if B is known to be weak here. C less likely unless a specific narrative style is requested.")
-    system_prompt_parts.append("  - User Query: 'Devise a comprehensive marketing strategy for launching a new eco-friendly toothbrush, including target audience, channels, and budget allocation for 3 months.' -> This is complex and strategic. If A is available, A is a strong candidate. C might be if a very persuasive/polished document is needed. B is a less optimal fallback.")
-
-    system_prompt_parts.append("\nUser Query will be provided next.")
-    system_prompt_parts.append("Respond with ONLY the single capital letter of your chosen model (e.g., A, B, C, D, or F). NO EXPLANATION, NO EXTRA TEXT, JUST THE LETTER.")
-
+    system_prompt_parts.append("\nINSTRUCTIONS: Based on all the above guidance and the provided conversation history, analyze the 'Latest User Query' (which will be the next message from the 'user' role). Then, respond with ONLY the single capital letter of your chosen model (e.g., A, B, C, D, or F). NO EXPLANATION, NO EXTRA TEXT, JUST THE LETTER.")
     final_system_message = "\n".join(system_prompt_parts)
 
     router_messages = [
         {"role": "system", "content": final_system_message},
-        {"role": "user", "content": f"User Query: \"{user_msg}\""} # Clearly label the user query
+        {"role": "user", "content": user_msg} # This is the "Latest User Query"
     ]
-    # Low temperature for more deterministic routing
     payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10, "temperature": 0.1}
 
     try:
-        r = api_post(payload_r) # api_post handles 401 by setting flag and re-raising
+        r = api_post(payload_r)
         choice_data = r.json()
-        # Extract the message content; be robust to potential variations
         raw_text_response = choice_data.get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
+        logging.info(f"Router raw response: '{raw_text_response}' for query: '{user_msg}' with history context.")
+        # logging.debug(f"Router system prompt for query '{user_msg}':\n{final_system_message}") # Uncomment for deep debugging
 
-        logging.info(f"Router raw response: '{raw_text_response}' for query: '{user_msg}'")
-        # For debugging, you might want to log the full prompt sent to the router:
-        # logging.debug(f"Router system prompt for query '{user_msg}':\n{final_system_message}")
-
-        # Iterate through the response to find the first valid model letter
-        # This handles cases where the model might output "Model A" or "A."
         chosen_model_letter = None
         for char_in_response in raw_text_response:
             if char_in_response in allowed:
                 chosen_model_letter = char_in_response
                 break
-
         if chosen_model_letter:
             logging.info(f"Router selected model: '{chosen_model_letter}'")
             return chosen_model_letter
         else:
-            # If no valid character found in the (potentially longer) response
-            logging.warning(f"Router returned a response ('{raw_text_response}') that did not contain any allowed model letters. Falling back to: {fallback_choice}")
+            logging.warning(f"Router returned ('{raw_text_response}') - no allowed letter. Fallback: {fallback_choice}")
             return fallback_choice
+    except ValueError as ve: logging.error(f"ValueError in router call: {ve}")
+    except requests.exceptions.HTTPError as e: logging.error(f"Router HTTPError {e.response.status_code}: {e.response.text}")
+    except (KeyError, IndexError, AttributeError, json.JSONDecodeError) as je:
+        response_text_for_log = r.text if 'r' in locals() and hasattr(r, 'text') else "N/A"
+        logging.error(f"Router JSON/structure error: {je}. Raw: {response_text_for_log}")
+    except Exception as e: logging.error(f"Router unexpected error: {e}")
 
-    except ValueError as ve: # Catch API key not found/invalid from api_post
-        logging.error(f"ValueError during router call (likely API key issue): {ve}")
-    except requests.exceptions.HTTPError as e:
-         # Flag st.session_state.api_key_auth_failed is set in api_post if 401
-        logging.error(f"Router call HTTPError {e.response.status_code}: {e.response.text}")
-    except (KeyError, IndexError, AttributeError, json.JSONDecodeError) as je: # Catch issues with JSON structure or decoding
-        response_text_for_log = "N/A"
-        if 'r' in locals() and hasattr(r, 'text'):
-            response_text_for_log = r.text
-        logging.error(f"Router call JSON parsing/structure error: {je}. Raw Response: {response_text_for_log}")
-    except Exception as e:
-        logging.error(f"Router call unexpected error: {e}")
-
-    logging.warning(f"Router failed or returned invalid. Falling back to model: {fallback_choice}")
+    logging.warning(f"Router failed. Fallback to model: {fallback_choice}")
     return fallback_choice
 
 # --------------------- Credits Endpoint -----------------------
@@ -979,8 +958,6 @@ else:
 
         if not is_api_key_valid(st.session_state.get("openrouter_api_key")) or st.session_state.get("api_key_auth_failed"):
             st.error("API Key is not configured or has failed. Please set it up in ⚙️ Settings.")
-            # No st.rerun() here, let the error message persist until user fixes it.
-            # st.stop() might be too abrupt; the error message should be enough warning.
         else:
             allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
             use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (
@@ -992,10 +969,11 @@ else:
                 st.info(f"{FALLBACK_MODEL_EMOJI} Daily quotas for standard models exhausted. Using free fallback.")
                 use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
             else:
-                routed_key = route_choice(prompt, allowed_standard_models)
-                if st.session_state.get("api_key_auth_failed"): # Check after routing attempt
+                # Pass the current chat_history (which includes the latest prompt)
+                routed_key = route_choice(prompt, allowed_standard_models, chat_history)
+
+                if st.session_state.get("api_key_auth_failed"):
                      st.error("API Authentication failed during model routing. Please check your API Key in Settings.")
-                     # No rerun, let error show.
                 elif routed_key not in MODEL_MAP or routed_key not in allowed_standard_models:
                     logging.warning(f"Router chose '{routed_key}' (invalid or no quota). Using fallback {FALLBACK_MODEL_ID}.")
                     st.warning(f"{FALLBACK_MODEL_EMOJI} Model routing issue or chosen model '{routed_key}' has no quota. Using free fallback.")
@@ -1011,7 +989,7 @@ else:
                 api_call_ok = True
 
                 for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
-                    if st.session_state.get("api_key_auth_failed"): # Check during streaming
+                    if st.session_state.get("api_key_auth_failed"):
                         full_response = "❗ **API Authentication Error**: Your API Key failed. Please update it in ⚙️ Settings."
                         api_call_ok = False; break
                     if err_msg:
@@ -1026,11 +1004,11 @@ else:
             chat_history.append({"role":"assistant","content":full_response,"model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY})
 
             if api_call_ok:
-                if not use_fallback and chosen_model_key: # Ensure chosen_model_key is not None
+                if not use_fallback and chosen_model_key:
                    record_use(chosen_model_key)
                 if sessions[current_sid]["title"] == "New chat" and prompt:
                    sessions[current_sid]["title"] = _autoname(prompt)
                    _delete_unused_blank_sessions(keep_sid=current_sid)
 
             _save(SESS_FILE, sessions)
-            st.rerun() # Rerun to update sidebar (quota, possibly new chat title)
+            st.rerun()
