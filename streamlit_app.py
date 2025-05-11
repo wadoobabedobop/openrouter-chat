@@ -212,15 +212,18 @@ def load_custom_css():
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
         }
         [data-testid="stAppViewContainer"] > .main {
-            background-color: #171923;
+            background-color: #171923; /* Main chat area background */
         }
         html[data-theme="light"] [data-testid="stAppViewContainer"] > .main {
             background-color: #FFFFFF;
         }
         [data-testid="stAppViewContainer"] > .main > .block-container {
             padding-top: 2rem;
-            padding-bottom: 2rem;
+            /* padding-bottom: 2rem; /* Reduced to accommodate sticky input */
             max-width: 860px;
+            /* Add padding-bottom to ensure content doesn't hide behind sticky input */
+            /* Estimate 60px for single line input, 80-100px for taller */
+            padding-bottom: calc(2rem + 80px); /* Adjust if chat input height changes significantly */
         }
 
         /* Sidebar Styling */
@@ -234,37 +237,38 @@ def load_custom_css():
             border-right: 1px solid #E2E8F0;
         }
 
-        [data-testid="stSidebar"] > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) {
+        [data-testid="stSidebar"] > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) { /* Sidebar Header container */
             display: flex !important; align-items: center !important; gap: 10px;
             margin-bottom: 0 !important;
-            padding-bottom: 0;
-            border-bottom: none;
+            padding-bottom: 0; /* Remove default padding */
+            border-bottom: none; /* Remove default border */
         }
-        [data-testid="stSidebar"] .stImage > img {
+        [data-testid="stSidebar"] .stImage > img { /* Logo in sidebar */
             border-radius: 6px; width: 38px !important; height: 38px !important;
         }
-        [data-testid="stSidebar"] h1 {
+        [data-testid="stSidebar"] h1 { /* "OpenRouter Chat" title in sidebar */
             font-size: 1.3rem !important; color: #E2E8F0;
             font-weight: 600; margin-bottom: 0;
         }
         html[data-theme="light"] [data-testid="stSidebar"] h1 { color: #2D3748; }
 
-        [data-testid="stSidebar"] .stButton > button[kind="primary"] {
+        [data-testid="stSidebar"] .stButton > button[kind="primary"] { /* e.g. New Chat button */
              font-weight: 500;
+             /* Add more primary button styles if needed */
         }
 
-        [data-testid="stSidebar"] h3 { /* Styling for st.subheader */
+        [data-testid="stSidebar"] h3 { /* Styling for st.subheader like "CHATS" */
             font-size: 0.7rem !important; text-transform: uppercase;
             font-weight: 600; color: #A0AEC0;
             margin-top: 1.5rem; margin-bottom: 0.75rem; letter-spacing: 0.05em;
-            padding-left: 0.1rem; /* Align with model usage items */
+            padding-left: 0.1rem;
         }
         html[data-theme="light"] [data-testid="stSidebar"] h3 { color: #718096; }
 
-        /* Styling for st.expander in sidebar */
+        /* Styling for st.expander in sidebar (e.g., Model Usage) */
         [data-testid="stSidebar"] .stExpander {
             border: none !important;
-            margin-left: -0.5rem;
+            margin-left: -0.5rem; /* To make it appear more edge-to-edge within sidebar padding */
             margin-right: -0.5rem;
         }
         [data-testid="stSidebar"] .stExpander header {
@@ -287,7 +291,7 @@ def load_custom_css():
         }
 
 
-        .model-usage-item {
+        .model-usage-item { /* Container for each model's usage info */
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -299,7 +303,7 @@ def load_custom_css():
         .model-emoji { font-size: 1rem; }
         .model-key-name { color: #CBD5E0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;}
         html[data-theme="light"] .model-key-name { color: #4A5568; }
-        .quota-text {
+        .quota-text { /* e.g., "10/10" */
             font-weight: 500; color: #A0AEC0; font-size: 0.8rem;
             background-color: #2D3748;
             padding: 2px 6px;
@@ -309,7 +313,7 @@ def load_custom_css():
 
         .progress-bar-container {
             height: 6px;
-            background-color: #2D3748;
+            background-color: #2D3748; /* Darker background for progress bar track */
             border-radius: 3px;
             margin-bottom: 0.4rem;
             overflow: hidden;
@@ -321,7 +325,8 @@ def load_custom_css():
             transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out;
         }
 
-        [data-testid="stSidebar"] button[data-testid*="stPopover"] { /* Popover trigger button */
+        /* Popover trigger button (for model details) in sidebar */
+        [data-testid="stSidebar"] button[data-testid*="stPopover"] {
             font-size: 0.75rem !important;
             color: #718096 !important;
             padding: 0.1rem 0.4rem !important;
@@ -339,7 +344,7 @@ def load_custom_css():
             background-color: color-mix(in srgb, var(--primary-color) 10%, transparent) !important;
         }
 
-        /* REVISED: Sidebar buttons (chat list) text alignment */
+        /* Sidebar buttons (chat list items) */
         [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {
             border-radius: 6px; border: none;
             padding: 0.6rem 0.75rem; font-size: 0.875rem; font-weight: 400;
@@ -347,123 +352,154 @@ def load_custom_css():
             transition: background-color 0.2s, color 0.2s, border-left-color 0.2s;
             width: 100%; margin-bottom: 0.2rem;
             display: flex; align-items: center; gap: 8px;
-            border-left: 3px solid transparent;
-            justify-content: flex-start !important; /* Ensure content blocks align left */
-            text-align: left !important; /* Ensure text within button is left-aligned */
+            border-left: 3px solid transparent; /* For hover/active indication */
+            justify-content: flex-start !important; /* Align content (icon + text) to the left */
+            text-align: left !important; /* Align text itself to the left */
         }
         html[data-theme="light"] [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) { color: #4A5568; }
 
         [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):hover {
             background-color: #2D3748; color: #F7FAFC;
-            border-left-color: #4A5568;
+            border-left-color: #4A5568; /* Or var(--primary-color) for stronger hover */
         }
         html[data-theme="light"] [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):hover {
             background-color: #E2E8F0; color: var(--primary-color);
-            border-left-color: #CBD5E0;
+            border-left-color: #CBD5E0; /* Or var(--primary-color) */
         }
 
-        /* Active chat button also needs these alignments */
+        /* Active chat button in sidebar */
         [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):has(span:contains("🔹")) {
             color: var(--primary-color) !important;
             background-color: color-mix(in srgb, var(--primary-color) 10%, transparent);
             border-left: 3px solid var(--primary-color);
             font-weight: 500;
+            /* Ensure alignment is maintained for active state */
             justify-content: flex-start !important;
             text-align: left !important;
         }
 
-        [data-testid="stSidebar"] .stCaption {
+        [data-testid="stSidebar"] .stCaption { /* For captions like "Current chat is empty" */
             color: #718096; font-size: 0.8rem; text-align: left;
             padding: 0.2rem 0.1rem 1rem 0.1rem; line-height: 1.4;
         }
         html[data-theme="light"] [data-testid="stSidebar"] .stCaption { color: #6B7280; }
 
-        [data-testid="stSidebar"] hr {
-            margin: 1.25rem -1rem;
+        [data-testid="stSidebar"] hr { /* Dividers in sidebar */
+            margin: 1.25rem -1rem; /* Full width within sidebar padding */
             border: 0;
             border-top: 1px solid #2D3748;
         }
         html[data-theme="light"] [data-testid="stSidebar"] hr { border-top-color: #E2E8F0; }
 
+        /* Empty Chat State (Center of Main Panel) */
         .empty-chat-container {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             min-height: 65vh; text-align: center; padding: 2rem;
         }
-        .empty-chat-container img.logo-main {
+        .empty-chat-container img.logo-main { /* Logo in empty chat state */
             width: 72px; height: 72px; border-radius: 12px; margin-bottom: 1.75rem;
             box-shadow: 0 4px 15px rgba(0,0,0,0.15);
         }
-        .empty-chat-container h2 {
+        .empty-chat-container h2 { /* "How can I help..." */
             font-size: 1.75rem; font-weight: 600; margin-bottom: 0.7rem; color: var(--text-color);
         }
-        .empty-chat-container p {
+        .empty-chat-container p { /* Subtext in empty chat state */
             font-size: 1rem; color: var(--text-color-secondary); max-width: 450px; line-height: 1.6;
         }
 
-        /* REVISED: User Input Bar Styling for seamless look */
+        /* Chat Input Bar (Bottom of Main Panel) */
         [data-testid="stChatInput"] {
-            background-color: #2D3748 !important; /* Bar background color */
-            border-top: 1px solid #4A5568 !important; /* Bar top border color */
-            padding: 0.5rem 0.75rem !important; /* Adjust padding for the bar itself */
-            position: sticky; bottom: 0;
-            display: flex; /* Use flex to align textarea and button */
-            align-items: center; /* Vertically center items in the bar */
+            background-color: #1A202C !important; /* Slightly different from main chat for subtle separation */
+            border-top: 1px solid #2D3748 !important;
+            padding: 0.75rem 1rem !important; /* More padding for a spacious feel */
+            position: sticky; bottom: 0; left:0; right:0; /* Ensure it spans width */
+            z-index: 100; /* Ensure it's above chat messages if they overlap due to padding issues */
+            display: flex;
+            align-items: center;
+            gap: 0.5rem; /* Gap between textarea and button */
         }
         html[data-theme="light"] [data-testid="stChatInput"] {
-            background-color: #F0F2F6 !important; /* Light theme bar background */
-            border-top-color: #D1D7E0 !important; /* Light theme bar top border */
+            background-color: #F0F2F6 !important;
+            border-top-color: #D1D7E0 !important;
         }
 
         [data-testid="stChatInput"] textarea {
-            flex-grow: 1; /* Allow textarea to take available space */
-            background-color: transparent !important; /* Textarea transparent to show bar background */
-            border: none !important; /* No border for textarea */
-            color: #E2E8F0 !important; /* Text color */
-            padding: 10px 12px !important; /* Padding inside textarea for text */
+            flex-grow: 1;
+            background-color: #2D3748 !important; /* Background for the textarea itself */
+            border: 1px solid #4A5568 !important; /* Subtle border for textarea */
+            color: #E2E8F0 !important;
+            padding: 10px 14px !important;
             line-height: 1.5 !important;
             box-shadow: none !important;
             margin: 0 !important;
-            border-radius: 6px !important; /* Optional: slightly round corners if desired, but might not be visible if truly seamless */
-            outline: none !important; /* Remove focus outline if it interferes with seamless look */
+            border-radius: 8px !important; /* Rounded corners for the textarea */
+            outline: none !important;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            min-height: 40px; /* Ensure a minimum height */
+            max-height: 200px; /* Prevent excessive growth */
+            resize: none; /* Disable manual resize handle if not desired */
         }
         html[data-theme="light"] [data-testid="stChatInput"] textarea {
-            color: #2D3748 !important; /* Light theme text color */
+            background-color: #FFFFFF !important;
+            border-color: #CBD5E0 !important;
+            color: #2D3748 !important;
         }
-        /* Textarea focus styling - can be subtle if a fully seamless look is desired */
+        [data-testid="stChatInput"] textarea::placeholder {
+            color: #718096;
+        }
+        html[data-theme="light"] [data-testid="stChatInput"] textarea::placeholder {
+            color: #A0AEC0;
+        }
         [data-testid="stChatInput"] textarea:focus {
-             /* No specific border or shadow on focus to maintain seamlessness,
-                or a very subtle indication if preferred. For now, keeping it minimal. */
-             /* E.g., box-shadow: 0 0 0 1px var(--primary-color) !important; */
+             border-color: var(--primary-color) !important;
+             box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 25%, transparent) !important;
         }
 
-        /* Ensure the button next to textarea is styled appropriately */
-        [data-testid="stChatInput"] button {
-            margin-left: 0.5rem; /* Space between textarea and button */
+        [data-testid="stChatInput"] button { /* Send button */
+            /* Streamlit's default button styling is often fine here, or customize further */
+             height: 40px; /* Match min-height of textarea */
+             border-radius: 8px !important; /* Match textarea border-radius */
         }
         [data-testid="stChatInput"] button svg { fill: #A0AEC0; }
         [data-testid="stChatInput"] button:hover svg { fill: var(--primary-color); }
+        [data-testid="stChatInput"] button:disabled svg { fill: #4A5568; }
 
 
-        [data-testid="stChatMessage"] {
-            border-radius: 10px; padding: 10px 16px; margin-bottom: 8px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: none; max-width: 75%; line-height: 1.6;
+        /* Chat Messages */
+        [data-testid="stChatMessage"] { /* General container for each message */
+            border-radius: 10px; padding: 12px 18px; margin-bottom: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: none; max-width: 78%; line-height: 1.6;
         }
+        /* User's messages */
         [data-testid^="stChatMessageUser"] {
             background-color: var(--primary-color); color: white; margin-left: auto;
-            border-bottom-right-radius: 4px; border-top-left-radius: 10px; border-top-right-radius: 10px; border-bottom-left-radius: 10px;
+            border-bottom-right-radius: 4px; /* "Tail" effect */
         }
-        [data-testid^="stChatMessageUser"] .stMarkdown p, [data-testid^="stChatMessageUser"] .stMarkdown li { color: white !important; }
+        [data-testid^="stChatMessageUser"] .stMarkdown p,
+        [data-testid^="stChatMessageUser"] .stMarkdown li,
+        [data-testid^="stChatMessageUser"] .stMarkdown ol,
+        [data-testid^="stChatMessageUser"] .stMarkdown ul {
+            color: white !important;
+        }
 
+        /* Assistant's messages */
         [data-testid^="stChatMessageAssistant"] {
             background-color: #2D3748; color: #E2E8F0;
-            border-bottom-left-radius: 4px;  border-top-left-radius: 10px; border-top-right-radius: 10px; border-bottom-right-radius: 10px;
+            border-bottom-left-radius: 4px; /* "Tail" effect */
             margin-right: auto;
         }
-        html[data-theme="light"] [data-testid^="stChatMessageAssistant"] { background-color: #E9ECF2; color: #2D3748; }
-        [data-testid^="stChatMessageAssistant"] .stMarkdown p, [data-testid^="stChatMessageAssistant"] .stMarkdown li { color: inherit !important; }
+        html[data-theme="light"] [data-testid^="stChatMessageAssistant"] {
+            background-color: #E9ECF2; color: #2D3748;
+        }
+        [data-testid^="stChatMessageAssistant"] .stMarkdown p,
+        [data-testid^="stChatMessageAssistant"] .stMarkdown li,
+        [data-testid^="stChatMessageAssistant"] .stMarkdown ol,
+        [data-testid^="stChatMessageAssistant"] .stMarkdown ul {
+            color: inherit !important; /* Inherits from #E2E8F0 or #2D3748 */
+        }
 
-        /* General expander styling (e.g., for Account Credits) */
-        .stExpander {
+        /* General expander styling (e.g., for Account Credits in sidebar) */
+        .stExpander { /* This applies to non-sidebar expanders if any, or can be namespaced */
             border: 1px solid #2D3748; border-radius: 8px; margin-bottom: 1rem;
             background-color: transparent;
         }
@@ -480,10 +516,60 @@ def load_custom_css():
         html[data-theme="light"] .stExpander header:hover { background-color: #E2E8F0; }
         .stExpander div[data-testid="stExpanderDetails"] { padding: 0.75rem 1rem; background-color: transparent; }
 
+        /* Scrollbar for Main Content Area */
         .main::-webkit-scrollbar { width: 8px; }
         .main::-webkit-scrollbar-track { background: transparent; }
-        .main::-webkit-scrollbar-thumb { background-color: #4A5568; border-radius: 10px; border: 2px solid transparent; background-clip: content-box;}
+        .main::-webkit-scrollbar-thumb {
+            background-color: #4A5568;
+            border-radius: 10px;
+            border: 2px solid #171923; /* Match main background */
+            background-clip: content-box;
+        }
         .main::-webkit-scrollbar-thumb:hover { background-color: #718096; }
+
+        /* Scrollbar for Sidebar Content Area */
+        /* The direct child div of stSidebar that contains the scrollable content */
+        [data-testid="stSidebar"] > div:nth-child(1) {
+            scrollbar-width: thin; /* For Firefox */
+            scrollbar-color: #4A5568 #1A202C; /* thumb and track color for Firefox */
+        }
+        [data-testid="stSidebar"] > div:nth-child(1)::-webkit-scrollbar {
+            width: 8px;
+        }
+        [data-testid="stSidebar"] > div:nth-child(1)::-webkit-scrollbar-track {
+            background: transparent; /* Or #1A202C if you want a visible track matching sidebar bg */
+        }
+        [data-testid="stSidebar"] > div:nth-child(1)::-webkit-scrollbar-thumb {
+            background-color: #4A5568;
+            border-radius: 10px;
+            border: 2px solid #1A202C; /* Match sidebar background for the border area */
+            background-clip: content-box;
+        }
+        [data-testid="stSidebar"] > div:nth-child(1)::-webkit-scrollbar-thumb:hover {
+            background-color: #718096;
+        }
+
+        /* Header bar (Share, star, edit, kebab menu) */
+        [data-testid="stHeader"] {
+            background-color: #1A202C !important; /* Match sidebar for consistency */
+            border-bottom: 1px solid #2D3748 !important;
+        }
+        html[data-theme="light"] [data-testid="stHeader"] {
+            background-color: #F7FAFC !important;
+            border-bottom-color: #E2E8F0 !important;
+        }
+        [data-testid="stHeader"] [data-testid="stToolbar"] {
+            padding-right: 1rem; /* Add some padding for the toolbar items */
+        }
+        [data-testid="stHeader"] [data-testid="stToolbar"] button svg {
+            fill: #A0AEC0; /* Icon color */
+        }
+        html[data-theme="light"] [data-testid="stHeader"] [data-testid="stToolbar"] button svg {
+            fill: #718096;
+        }
+        [data-testid="stHeader"] [data-testid="stToolbar"] button:hover svg {
+            fill: var(--primary-color);
+        }
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -508,8 +594,12 @@ if "credits" not in st.session_state:
 
 # ───────────────────────── Sidebar ─────────────────────────────
 with st.sidebar:
-    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=38)
-    st.title("OpenRouter Chat")
+    # Using columns for logo and title to control vertical alignment if needed
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=38) # Consider using a higher res logo
+    with col2:
+        st.title("OpenRouter Chat") # Title will be vertically centered with logo due to st.columns behavior
     st.markdown("---")
 
     current_session_is_truly_blank = (st.session_state.sid in sessions and
@@ -527,8 +617,12 @@ with st.sidebar:
             left_d, _, _ = remaining(m_key)
             lim_d, _, _  = PLAN[m_key]
 
-            is_unlimited = lim_d > 900_000
+            is_unlimited = lim_d > 900_000 # A large number to signify unlimited
             progress_value = 1.0 if is_unlimited else (max(0.0, left_d / lim_d if lim_d > 0 else 0.0))
+            progress_color = '#4caf50' # Green
+            if not is_unlimited:
+                if progress_value <= 0.25: progress_color = '#f44336' # Red
+                elif progress_value <= 0.5: progress_color = '#ffc107' # Amber
 
             try:
                 model_display_name = MODEL_DESCRIPTIONS[m_key].split('(')[1].split(')')[0].strip()
@@ -546,7 +640,7 @@ with st.sidebar:
                 </div>
             </div>
             <div class="progress-bar-container">
-                <div class="progress-bar-fill" style="width: {progress_value*100}%; background-color: {'#4caf50' if progress_value > 0.5 else ('#ffc107' if progress_value > 0.25 else '#f44336')};">
+                <div class="progress-bar-fill" style="width: {progress_value*100}%; background-color: {progress_color};">
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -572,7 +666,7 @@ with st.sidebar:
 
         button_label = display_title_text
         if st.session_state.sid == sid_key_loop:
-            button_label = f"🔹 {display_title_text}"
+            button_label = f"🔹 {display_title_text}" # Using a slightly different active indicator for clarity
 
         if st.button(button_label, key=f"session_button_{sid_key_loop}", use_container_width=True):
             if st.session_state.sid != sid_key_loop:
@@ -611,19 +705,19 @@ if is_new_empty_chat:
     </div>""", unsafe_allow_html=True)
 else:
     for msg_idx, msg in enumerate(chat_history):
-        role = msg["role"]; avatar = "👤"
+        role = msg["role"]; avatar = "👤" # Default user avatar
         if role == "assistant":
             model_key_hist = msg.get("model")
             avatar = FALLBACK_MODEL_EMOJI if model_key_hist == FALLBACK_MODEL_KEY else EMOJI.get(model_key_hist, EMOJI.get("F", "🤖"))
         with st.chat_message(role, avatar=avatar): st.markdown(msg["content"])
 
 if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
-    if current_session_is_truly_blank:
-        st.session_state.new_chat_button_top_clicked_once = True
+    if current_session_is_truly_blank: # If it was blank, this first message makes it non-blank
+        st.session_state.new_chat_button_top_clicked_once = True # Used to hide the "Current chat is empty" caption
 
     chat_history.append({"role":"user","content":prompt})
 
-    if not is_new_empty_chat:
+    if not is_new_empty_chat: # If it's not a new chat, display the user message immediately
         with st.chat_message("user", avatar="👤"): st.markdown(prompt)
 
     allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
@@ -641,15 +735,21 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
         else:
             logging.warning(f"Router returned invalid key '{chosen_model_key_for_response}' or it's not in MODEL_MAP. Forcing fallback.")
             use_fallback = True
-            chosen_model_key_for_response = FALLBACK_MODEL_KEY
+            # chosen_model_key_for_response remains FALLBACK_MODEL_KEY (already set by default)
 
-    if use_fallback:
+    if use_fallback: # This block executes if allowed_standard_models was empty OR router failed and forced fallback
         st.info(f"{FALLBACK_MODEL_EMOJI} Using fallback model: {FALLBACK_MODEL_ID.split('/')[-1]}")
         logging.info(f"Using fallback model: {FALLBACK_MODEL_ID}")
-        chosen_model_key_for_response = FALLBACK_MODEL_KEY
+        chosen_model_key_for_response = FALLBACK_MODEL_KEY # Ensure it's set correctly
+        model_id_to_use = FALLBACK_MODEL_ID
+        max_tokens_api = FALLBACK_MODEL_MAX_TOKENS
+        avatar_resp = FALLBACK_MODEL_EMOJI
+
 
     response_content, api_ok = "", True
 
+    # If it was a new empty chat, we defer rendering the user message until after the bot responds,
+    # so it appears as a cohesive turn. Otherwise, the assistant message is added to existing history.
     if not is_new_empty_chat:
         with st.chat_message("assistant", avatar=avatar_resp):
             placeholder = st.empty()
@@ -657,18 +757,20 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
                 if err_msg: response_content = f"❗ **API Error**: {err_msg}"; placeholder.error(response_content); api_ok=False; break
                 if chunk: response_content += chunk; placeholder.markdown(response_content + "▌")
             if api_ok: placeholder.markdown(response_content)
-    else:
+    else: # This is the first turn in a new chat
+        # We will construct the full turn and then rerun to display it
         for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
             if err_msg: response_content = f"❗ **API Error**: {err_msg}"; api_ok=False; break
             if chunk: response_content += chunk
+        # No placeholder needed here, we will save and rerun
 
     chat_history.append({"role":"assistant","content":response_content,"model": chosen_model_key_for_response})
     if api_ok and not use_fallback and chosen_model_key_for_response != FALLBACK_MODEL_KEY:
         record_use(chosen_model_key_for_response)
 
-    if sessions[current_sid]["title"] == "New chat" and len(chat_history) >=2 :
+    if sessions[current_sid]["title"] == "New chat" and len(chat_history) >=2 : # Autoname after first exchange
         sessions[current_sid]["title"] = _autoname(prompt)
-        _delete_unused_blank_sessions(keep_sid=current_sid)
+        _delete_unused_blank_sessions(keep_sid=current_sid) # Clean up any other blank sessions
 
     _save(SESS_FILE, sessions)
     st.rerun()
