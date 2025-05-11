@@ -14,7 +14,7 @@ OpenRouter Streamlit Chat — Full Edition
 
 # ------------------------- Imports ------------------------- #
 import json, logging, os, sys, subprocess, time, requests
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo # Python 3.9+
 import streamlit as st
@@ -46,7 +46,7 @@ MAX_TOKENS = {
     "D": 8_000, "F": 8_000
 }
 
-PLAN = {
+PLAN = { # Daily, Weekly, Monthly call limits
     "A": (10, 10 * 7, 10 * 30),
     "B": (10, 10 * 7, 10 * 30),
     "C": (10, 10 * 7, 10 * 30),
@@ -87,9 +87,9 @@ def _save(path: Path, obj):
      except Exception as e:
        logging.error(f"Failed to save file {path}: {e}")
 
-def _today():    return date.today().isoformat()
-def _yweek():    return datetime.now(TZ).strftime("%G-%V")
-def _ymonth():   return datetime.now(TZ).strftime("%Y-%m")
+def _today():    return datetime.now(TZ).date().isoformat() # Uses TZ
+def _yweek():    return datetime.now(TZ).strftime("%G-%V") # Already uses TZ
+def _ymonth():   return datetime.now(TZ).strftime("%Y-%m") # Already uses TZ
 
 def _load_app_config():
     return _load(CONFIG_FILE, {})
@@ -100,55 +100,150 @@ def _save_app_config(api_key_value: str):
     _save(CONFIG_FILE, config_data)
 
 
-# --------------------- Quota Management ------------------------
+# --------------------- Quota Management (Revised) ------------------------
 
-def _reset(block: dict, key: str, stamp: str, zeros: dict):
-    active_zeros = {k: 0 for k in MODEL_MAP}
-    if block.get(key) != stamp:
-        block[key] = stamp
-        block[f"{key}_u"] = active_zeros.copy()
+# Global in-memory cache for quota data and last refresh timestamps
+_g_quota_data = None
+_g_quota_data_last_refreshed_stamps = {"d": None, "w": None, "m": None}
 
-def _load_quota():
-    zeros = {k: 0 for k in MODEL_MAP}
-    q = _load(QUOTA_FILE, {})
+def _reset(block: dict, key: str, current_stamp: str, model_keys_zeros: dict) -> bool:
+    """
+    Resets the usage data for a specific period (day, week, month) if the stamp has changed.
+    Ensures all current models defined in MODEL_MAP have an entry in the usage dict.
+    Returns True if data was changed (reset or new models added), False otherwise.
+    """
+    data_changed = False
+    usage_dict_key = f"{key}_u" # e.g., "d_u", "w_u", "m_u"
+
+    if block.get(key) != current_stamp:
+        block[key] = current_stamp
+        block[usage_dict_key] = model_keys_zeros.copy() # Fresh set of zeros for all current models
+        data_changed = True
+        logging.info(f"Quota period '{key}' reset for new stamp '{current_stamp}'.")
+    else:
+        # Period stamp is the same, but ensure the usage dictionary exists and is complete
+        if usage_dict_key not in block:
+            block[usage_dict_key] = model_keys_zeros.copy()
+            data_changed = True
+            logging.info(f"Initialized missing usage dict '{usage_dict_key}' for stamp '{current_stamp}'.")
+        else:
+            # Ensure all models in MODEL_MAP exist in this usage dict, adding them if new
+            current_period_usage_dict = block[usage_dict_key]
+            for model_k_map in model_keys_zeros.keys(): # Iterate over current models
+                if model_k_map not in current_period_usage_dict:
+                    current_period_usage_dict[model_k_map] = 0 # Initialize new model with 0 usage
+                    data_changed = True
+                    logging.info(f"Added missing model '{model_k_map}' to usage dict '{usage_dict_key}' for stamp '{current_stamp}'.")
+    return data_changed
+
+def _ensure_quota_data_is_current():
+    """
+    Ensures the global quota data (_g_quota_data) is loaded and up-to-date.
+    It checks if periods (day, week, month) have changed and triggers resets if necessary.
+    It also cleans out usage data for models no longer defined in MODEL_MAP.
+    Saves to QUOTA_FILE if any data was modified.
+    Returns the current quota data.
+    """
+    global _g_quota_data, _g_quota_data_last_refreshed_stamps
+
+    now_d_stamp = _today()
+    now_w_stamp = _yweek()
+    now_m_stamp = _ymonth()
+
+    needs_full_refresh_logic = False
+    if _g_quota_data is None:
+        needs_full_refresh_logic = True
+        logging.info("Quota data not in memory. Performing initial load and refresh.")
+    elif ( (_g_quota_data_last_refreshed_stamps["d"] != now_d_stamp) or
+           (_g_quota_data_last_refreshed_stamps["w"] != now_w_stamp) or
+           (_g_quota_data_last_refreshed_stamps["m"] != now_m_stamp) ):
+        needs_full_refresh_logic = True
+        logging.info(f"Quota period change detected (stamps: d:'{now_d_stamp}', w:'{now_w_stamp}', m:'{now_m_stamp}'). Refreshing quota data.")
+    
+    if not needs_full_refresh_logic:
+        return _g_quota_data # Return cached data if no period change
+
+    # --- Perform full load/refresh ---
+    q_loaded_data = _load(QUOTA_FILE, {}) # Load from disk
+    data_was_modified = _g_quota_data is None # If initial load, consider it modified for saving checks
+
+    # 1. Clean out usage entries for models no longer in MODEL_MAP
+    active_model_keys = set(MODEL_MAP.keys())
+    cleaned_during_load = False
     for period_usage_key in ("d_u", "w_u", "m_u"):
-        if period_usage_key in q:
-            current_usage_dict = q[period_usage_key]
-            # Clean out keys for models that are no longer defined in MODEL_MAP
-            keys_to_remove = [k for k in current_usage_dict if k not in MODEL_MAP]
-            for k_rem in keys_to_remove:
-                try:
-                  del current_usage_dict[k_rem]
-                  logging.info(f"Removed old model key '{k_rem}' from quota usage '{period_usage_key}'.")
-                except KeyError:
-                   pass # Ignore if already gone
-    _reset(q, "d", _today(), zeros)
-    _reset(q, "w", _yweek(), zeros)
-    _reset(q, "m", _ymonth(), zeros)
-    _save(QUOTA_FILE, q)
-    return q
+        if period_usage_key in q_loaded_data:
+            current_period_usage_dict = q_loaded_data[period_usage_key]
+            keys_in_usage = list(current_period_usage_dict.keys()) # Iterate over a copy
+            for model_key_in_usage in keys_in_usage:
+                if model_key_in_usage not in active_model_keys:
+                    try:
+                        del current_period_usage_dict[model_key_in_usage]
+                        logging.info(f"Removed obsolete model key '{model_key_in_usage}' from quota usage '{period_usage_key}'.")
+                        cleaned_during_load = True
+                    except KeyError:
+                        pass 
+    if cleaned_during_load:
+        data_was_modified = True
 
-quota = _load_quota() # This is loaded once at startup. API key not needed for this part.
+    # 2. Perform resets for each period (daily, weekly, monthly)
+    #    _reset also ensures all current models have entries in usage dicts.
+    current_model_zeros = {k: 0 for k in MODEL_MAP.keys()}
+    
+    reset_occurred_d = _reset(q_loaded_data, "d", now_d_stamp, current_model_zeros)
+    reset_occurred_w = _reset(q_loaded_data, "w", now_w_stamp, current_model_zeros)
+    reset_occurred_m = _reset(q_loaded_data, "m", now_m_stamp, current_model_zeros)
+
+    if reset_occurred_d or reset_occurred_w or reset_occurred_m:
+        data_was_modified = True
+
+    # 3. Save to disk if any data was loaded for the first time, cleaned, or reset
+    if data_was_modified:
+        _save(QUOTA_FILE, q_loaded_data)
+        logging.info("Quota data was modified (loaded/cleaned/reset) and saved to disk.")
+    
+    # Update global cache and refresh timestamps
+    _g_quota_data = q_loaded_data
+    _g_quota_data_last_refreshed_stamps = {
+        "d": now_d_stamp,
+        "w": now_w_stamp,
+        "m": now_m_stamp
+    }
+    
+    return _g_quota_data
+
+# Removed: quota = _load_quota() 
 
 def remaining(key: str):
-    ud = quota.get("d_u", {}).get(key, 0)
-    uw = quota.get("w_u", {}).get(key, 0)
-    um = quota.get("m_u", {}).get(key, 0)
+    """Calculates remaining quotas for a given model key."""
+    current_q_data = _ensure_quota_data_is_current() # Ensures quota data is fresh
+
+    ud = current_q_data.get("d_u", {}).get(key, 0)
+    uw = current_q_data.get("w_u", {}).get(key, 0)
+    um = current_q_data.get("m_u", {}).get(key, 0)
+    
     if key not in PLAN:
-        logging.error(f"Attempted to get remaining quota for unknown key: {key}")
-        return 0, 0, 0
+        logging.error(f"Attempted to get remaining quota for unknown key: {key}. MODEL_MAP: {list(MODEL_MAP.keys())}, PLAN: {list(PLAN.keys())}")
+        return 0, 0, 0 
+        
     ld, lw, lm = PLAN[key]
     return ld - ud, lw - uw, lm - um
 
 def record_use(key: str):
-    if key not in MODEL_MAP:
-        logging.warning(f"Attempted to record usage for unknown or non-standard model key: {key}")
-        return
-    for blk_key in ("d_u", "w_u", "m_u"):
-        if blk_key not in quota:
-            quota[blk_key] = {k: 0 for k in MODEL_MAP}
-        quota[blk_key][key] = quota[blk_key].get(key, 0) + 1
-    _save(QUOTA_FILE, quota)
+    """Records usage for a given model key and saves updated quotas."""
+    if key not in MODEL_MAP: # Check against current standard models
+        logging.warning(f"Attempted to record usage for non-standard or unknown model key: {key}")
+        return # Do not record usage for non-standard/fallback models here
+    
+    current_q_data = _ensure_quota_data_is_current() # Ensures quota data is fresh and periods possibly reset
+
+    for period_usage_key_suffix in ("d_u", "w_u", "m_u"):
+        if period_usage_key_suffix not in current_q_data: 
+             current_q_data[period_usage_key_suffix] = {k_model: 0 for k_model in MODEL_MAP.keys()}
+
+        current_q_data[period_usage_key_suffix][key] = current_q_data[period_usage_key_suffix].get(key, 0) + 1
+    
+    _save(QUOTA_FILE, current_q_data) 
+    logging.info(f"Recorded usage for model '{key}'. Quotas saved.")
 
 
 # --------------------- Session Management -----------------------
@@ -220,7 +315,6 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
         if e.response.status_code == 401:
             st.session_state.api_key_auth_failed = True # <<< SET FLAG ON 401
             logging.error(f"API POST failed with 401 (Unauthorized): {e.response.text}")
-        # Log other HTTP errors as well for more context
         else:
             logging.error(f"API POST failed with {e.response.status_code}: {e.response.text}")
         raise # Re-raise the original error to be handled by caller
@@ -234,17 +328,14 @@ def streamed(model: str, messages: list, max_tokens_out: int):
         "max_tokens": max_tokens_out
     }
     try:
-        # api_post can raise ValueError or HTTPError (401 sets flag)
-        # Use a context manager for the response to ensure it's closed
         with api_post(payload, stream=True) as r:
             for line in r.iter_lines():
                 if not line: continue
                 line_str = line.decode("utf-8")
                 if line_str.startswith(": OPENROUTER PROCESSING"):
-                   # logging.info(f"OpenRouter PING: {line_str.strip()}")
                     continue
                 if not line_str.startswith("data: "):
-                    logging.warning(f"Unexpected non-event-stream line: {line_str}") # Log decoded string
+                    logging.warning(f"Unexpected non-event-stream line: {line_str}")
                     continue
                 data = line_str[6:].strip()
                 if data == "[DONE]": break
@@ -261,44 +352,41 @@ def streamed(model: str, messages: list, max_tokens_out: int):
                     return
                 delta = chunk["choices"][0]["delta"].get("content")
                 if delta is not None: yield delta, None
-    except ValueError as ve: # Catch API key not found/invalid from api_post
+    except ValueError as ve: 
         logging.error(f"ValueError during streamed call setup: {ve}")
-        yield None, str(ve) # api_key_auth_failed should have been set by api_post
+        yield None, str(ve) 
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code
         text = e.response.text
         logging.error(f"Stream HTTPError {status_code}: {text}")
-        # api_key_auth_failed flag is set by api_post if it's 401
         yield None, f"HTTP {status_code}: An error occurred with the API provider. Details: {text}"
-    except Exception as e: # Catch broader exceptions like connection errors
+    except Exception as e: 
         logging.error(f"Streamed API call failed: {e}")
         yield None, f"Failed to connect or make request: {e}"
 
 
 # ------------------------- Model Routing -----------------------
 def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
-    # API key syntactic validity is checked by api_post.
-    # api_key_auth_failed will be set by api_post if 401 occurs.
-
     if "F" in allowed: fallback_choice = "F"
     elif allowed: fallback_choice = allowed[0]
     elif "F" in MODEL_MAP: fallback_choice = "F"
     elif MODEL_MAP: fallback_choice = list(MODEL_MAP.keys())[0]
     else:
         logging.error("Router: No models available in MODEL_MAP for fallback.")
-        return FALLBACK_MODEL_KEY
+        return FALLBACK_MODEL_KEY # Use the internal key for the free fallback
 
     if not allowed:
-        logging.warning(f"route_choice called with empty allowed list. Defaulting to '{fallback_choice}'.")
+        logging.warning(f"route_choice called with empty allowed list. Defaulting to '{fallback_choice}' (or true fallback if F not allowed/available).")
+        # If fallback_choice was F but F is not in MODEL_MAP (e.g. removed), then must use true fallback
+        if fallback_choice == "F" and "F" not in MODEL_MAP:
+             return FALLBACK_MODEL_KEY
         return fallback_choice
     if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed ('{allowed[0]}'), selecting it directly.")
         return allowed[0]
 
-    # Construct history context string
     history_segments = []
     current_chars = 0
-    # chat_history includes the current user_msg as the last item. We want history *before* it.
     relevant_history_for_router = chat_history[:-1]
     for msg in reversed(relevant_history_for_router):
         role = msg.get("role", "assistant").capitalize()
@@ -347,7 +435,7 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
 
     router_messages = [
         {"role": "system", "content": final_system_message},
-        {"role": "user", "content": user_msg} # This is the "Latest User Query"
+        {"role": "user", "content": user_msg} 
     ]
     payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10, "temperature": 0.1}
 
@@ -356,8 +444,7 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
         choice_data = r.json()
         raw_text_response = choice_data.get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
         logging.info(f"Router raw response: '{raw_text_response}' for query: '{user_msg}' with history context.")
-        # logging.debug(f"Router system prompt for query '{user_msg}':\n{final_system_message}") # Uncomment for deep debugging
-
+        
         chosen_model_letter = None
         for char_in_response in raw_text_response:
             if char_in_response in allowed:
@@ -368,8 +455,9 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
             return chosen_model_letter
         else:
             logging.warning(f"Router returned ('{raw_text_response}') - no allowed letter. Fallback: {fallback_choice}")
+            if fallback_choice == "F" and "F" not in MODEL_MAP: return FALLBACK_MODEL_KEY
             return fallback_choice
-    except ValueError as ve: logging.error(f"ValueError in router call: {ve}")
+    except ValueError as ve: logging.error(f"ValueError in router call: {ve}") # API key issue
     except requests.exceptions.HTTPError as e: logging.error(f"Router HTTPError {e.response.status_code}: {e.response.text}")
     except (KeyError, IndexError, AttributeError, json.JSONDecodeError) as je:
         response_text_for_log = r.text if 'r' in locals() and hasattr(r, 'text') else "N/A"
@@ -377,6 +465,7 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
     except Exception as e: logging.error(f"Router unexpected error: {e}")
 
     logging.warning(f"Router failed. Fallback to model: {fallback_choice}")
+    if fallback_choice == "F" and "F" not in MODEL_MAP: return FALLBACK_MODEL_KEY
     return fallback_choice
 
 # --------------------- Credits Endpoint -----------------------
@@ -423,197 +512,37 @@ def load_custom_css():
             --spacing-lg: 1.5rem;
             --shadow-light: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
             --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-            /* --divider-color will be inherited from Streamlit's theme or defaults */
         }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-        }
-
-        /* --- Sidebar Styling --- */
-        [data-testid="stSidebar"] {
-            background-color: var(--secondaryBackgroundColor); /* Use theme variable */
-            padding: var(--spacing-lg) var(--spacing-md);
-            border-right: 1px solid var(--divider-color, #262730); /* Add a subtle border */
-        }
-        [data-testid="stSidebar"] .stImage > img { /* Sidebar Logo */
-            border-radius: 50%;
-            box-shadow: var(--shadow-light);
-            width: 48px !important; height: 48px !important;
-            margin-right: var(--spacing-sm);
-        }
-        [data-testid="stSidebar"] h1 { /* Sidebar Title */
-            font-size: 1.5rem !important; color: var(--primaryColor); /* Theme variable */
-            font-weight: 600; margin-bottom: 0;
-            padding-top: 0.2rem;
-        }
-        [data-testid="stSidebar"] .stButton > button { /* General Sidebar Buttons */
-            border-radius: var(--border-radius-md);
-            border: 1px solid var(--divider-color, #333);
-            padding: 0.6em 1em; font-size: 0.9em;
-            background-color: transparent;
-            color: var(--textColor);
-            transition: background-color 0.2s, border-color 0.2s;
-            width: 100%; margin-bottom: var(--spacing-sm); text-align: left;
-            font-weight: 500;
-        }
-        [data-testid="stSidebar"] .stButton > button:hover:not(:disabled) { /* Don't apply hover to disabled (active) */
-            border-color: var(--primaryColor);
-            background-color: color-mix(in srgb, var(--primaryColor) 15%, transparent);
-        }
-        /* Style for active (disabled) chat buttons */
-        [data-testid="stSidebar"] .stButton > button:disabled {
-            opacity: 1.0; /* Ensure it's fully visible */
-            cursor: default; /* Default cursor for active item */
-            background-color: color-mix(in srgb, var(--primaryColor) 25%, transparent) !important;
-            border-left: 3px solid var(--primaryColor) !important;
-            border-top-color: var(--divider-color, #333) !important; /* Keep other borders consistent */
-            border-right-color: var(--divider-color, #333) !important;
-            border-bottom-color: var(--divider-color, #333) !important;
-            font-weight: 600;
-            color: var(--textColor); /* Ensure text color is not dimmed */
-        }
-
-        /* Specific "New Chat" button */
-        [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button {
-            background-color: var(--primaryColor); color: white;
-            border-color: var(--primaryColor);
-            font-weight: 600;
-        }
-        [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:hover {
-            background-color: color-mix(in srgb, var(--primaryColor) 85%, black);
-            border-color: color-mix(in srgb, var(--primaryColor) 85%, black);
-        }
-        /* Disabled state for "New Chat" specifically if it's truly blank */
-        [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:disabled {
-            background-color: var(--primaryColor) !important; /* Keep its primary color */
-            color: white !important;
-            border-color: var(--primaryColor) !important;
-            opacity: 0.6 !important; /* Dim it slightly like other disabled buttons */
-            cursor: not-allowed !important;
-            border-left: 1px solid var(--primaryColor) !important; /* Reset active chat border */
-        }
-
-
-        /* Sidebar Subheaders (e.g., "CHATS", "MODEL-ROUTING MAP") */
-        [data-testid="stSidebar"] h3,
-        [data-testid="stSidebar"] .stSubheader {
-            font-size: 0.8rem !important; text-transform: uppercase; font-weight: 700;
-            color: var(--text-color-secondary, #A0A0A0);
-            margin-top: var(--spacing-lg); margin-bottom: var(--spacing-sm);
-            letter-spacing: 0.05em;
-        }
-
-        /* --- Sidebar Expanders --- */
-        [data-testid="stSidebar"] [data-testid="stExpander"] {
-            border: 1px solid var(--divider-color, #262730);
-            border-radius: var(--border-radius-md);
-            background-color: transparent; /* Make it blend better, less boxy */
-            margin-bottom: var(--spacing-md);
-        }
-        [data-testid="stSidebar"] [data-testid="stExpander"] summary {
-            padding: 0.6rem var(--spacing-md) !important;
-            font-size: 0.85rem !important;
-            font-weight: 600 !important;
-            text-transform: uppercase;
-            color: var(--textColor) !important;
-            border-bottom: 1px solid var(--divider-color, #262730);
-            border-top-left-radius: var(--border-radius-md); /* Match expander border */
-            border-top-right-radius: var(--border-radius-md);
-        }
-        [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
-            background-color: color-mix(in srgb, var(--textColor) 5%, transparent);
-        }
-        [data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] {
-            padding: var(--spacing-sm) var(--spacing-md) !important;
-            background-color: var(--secondaryBackgroundColor); /* Content area slightly different */
-            border-bottom-left-radius: var(--border-radius-md);
-            border-bottom-right-radius: var(--border-radius-md);
-        }
-        /* Quota items specific padding */
-        [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stExpanderDetails"] {
-            padding-top: 0.6rem !important;
-            padding-bottom: 0.2rem !important;
-            padding-left: 0.1rem !important;
-            padding-right: 0.1rem !important;
-        }
-        [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stHorizontalBlock"] {
-            gap: 0.25rem !important;
-        }
-
-        /* Compact Quota Bar Styling */
-        .compact-quota-item {
-            display: flex; flex-direction: column; align-items: center;
-            text-align: center; padding: 0px 4px;
-        }
-        .cq-info {
-            font-size: 0.7rem; margin-bottom: 3px; line-height: 1.1;
-            white-space: nowrap; color: var(--textColor);
-        }
-        .cq-bar-track {
-            width: 100%; height: 8px;
-            background-color: color-mix(in srgb, var(--textColor) 10%, transparent);
-            border: 1px solid var(--divider-color, #333);
-            border-radius: var(--border-radius-sm); overflow: hidden; margin-bottom: 5px; /* Increased space below bar */
-        }
-        .cq-bar-fill {
-            height: 100%; border-radius: var(--border-radius-sm);
-            transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out;
-        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"; }
+        [data-testid="stSidebar"] { background-color: var(--secondaryBackgroundColor); padding: var(--spacing-lg) var(--spacing-md); border-right: 1px solid var(--divider-color, #262730); }
+        [data-testid="stSidebar"] .stImage > img { border-radius: 50%; box-shadow: var(--shadow-light); width: 48px !important; height: 48px !important; margin-right: var(--spacing-sm); }
+        [data-testid="stSidebar"] h1 { font-size: 1.5rem !important; color: var(--primaryColor); font-weight: 600; margin-bottom: 0; padding-top: 0.2rem; }
+        [data-testid="stSidebar"] .stButton > button { border-radius: var(--border-radius-md); border: 1px solid var(--divider-color, #333); padding: 0.6em 1em; font-size: 0.9em; background-color: transparent; color: var(--textColor); transition: background-color 0.2s, border-color 0.2s; width: 100%; margin-bottom: var(--spacing-sm); text-align: left; font-weight: 500; }
+        [data-testid="stSidebar"] .stButton > button:hover:not(:disabled) { border-color: var(--primaryColor); background-color: color-mix(in srgb, var(--primaryColor) 15%, transparent); }
+        [data-testid="stSidebar"] .stButton > button:disabled { opacity: 1.0; cursor: default; background-color: color-mix(in srgb, var(--primaryColor) 25%, transparent) !important; border-left: 3px solid var(--primaryColor) !important; border-top-color: var(--divider-color, #333) !important; border-right-color: var(--divider-color, #333) !important; border-bottom-color: var(--divider-color, #333) !important; font-weight: 600; color: var(--textColor); }
+        [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button { background-color: var(--primaryColor); color: white; border-color: var(--primaryColor); font-weight: 600; }
+        [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:hover { background-color: color-mix(in srgb, var(--primaryColor) 85%, black); border-color: color-mix(in srgb, var(--primaryColor) 85%, black); }
+        [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:disabled { background-color: var(--primaryColor) !important; color: white !important; border-color: var(--primaryColor) !important; opacity: 0.6 !important; cursor: not-allowed !important; border-left: 1px solid var(--primaryColor) !important; }
+        [data-testid="stSidebar"] h3, [data-testid="stSidebar"] .stSubheader { font-size: 0.8rem !important; text-transform: uppercase; font-weight: 700; color: var(--text-color-secondary, #A0A0A0); margin-top: var(--spacing-lg); margin-bottom: var(--spacing-sm); letter-spacing: 0.05em; }
+        [data-testid="stSidebar"] [data-testid="stExpander"] { border: 1px solid var(--divider-color, #262730); border-radius: var(--border-radius-md); background-color: transparent; margin-bottom: var(--spacing-md); }
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary { padding: 0.6rem var(--spacing-md) !important; font-size: 0.85rem !important; font-weight: 600 !important; text-transform: uppercase; color: var(--textColor) !important; border-bottom: 1px solid var(--divider-color, #262730); border-top-left-radius: var(--border-radius-md); border-top-right-radius: var(--border-radius-md); }
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover { background-color: color-mix(in srgb, var(--textColor) 5%, transparent); }
+        [data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] { padding: var(--spacing-sm) var(--spacing-md) !important; background-color: var(--secondaryBackgroundColor); border-bottom-left-radius: var(--border-radius-md); border-bottom-right-radius: var(--border-radius-md); }
+        [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stExpanderDetails"] { padding-top: 0.6rem !important; padding-bottom: 0.2rem !important; padding-left: 0.1rem !important; padding-right: 0.1rem !important; }
+        [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stHorizontalBlock"] { gap: 0.25rem !important; }
+        .compact-quota-item { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 0px 4px; }
+        .cq-info { font-size: 0.7rem; margin-bottom: 3px; line-height: 1.1; white-space: nowrap; color: var(--textColor); }
+        .cq-bar-track { width: 100%; height: 8px; background-color: color-mix(in srgb, var(--textColor) 10%, transparent); border: 1px solid var(--divider-color, #333); border-radius: var(--border-radius-sm); overflow: hidden; margin-bottom: 5px; }
+        .cq-bar-fill { height: 100%; border-radius: var(--border-radius-sm); transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out; }
         .cq-value { font-size: 0.7rem; font-weight: bold; line-height: 1; }
-
-        /* --- Settings Panel (in Sidebar) --- */
-        .settings-panel { /* This is the div wrapper in Python, not an expander */
-            border: 1px solid var(--divider-color, #333);
-            border-radius: var(--border-radius-md);
-            padding: var(--spacing-md);
-            margin-top: var(--spacing-sm); margin-bottom: var(--spacing-md);
-            background-color: color-mix(in srgb, var(--backgroundColor) 50%, var(--secondaryBackgroundColor));
-        }
-        .settings-panel .stTextInput input {
-            border-color: var(--divider-color, #444) !important;
-        }
-
-        /* --- Main Chat Area Styling --- */
-        [data-testid="stChatInputContainer"] { /* Target the container of the chat input */
-            background-color: var(--secondaryBackgroundColor);
-            border-top: 1px solid var(--divider-color, #262730);
-            padding: var(--spacing-sm) var(--spacing-md); /* Add some padding around the input itself */
-        }
-        [data-testid="stChatInput"] textarea { /* Actual input field (is a textarea) */
-            border-color: var(--divider-color, #444) !important;
-            border-radius: var(--border-radius-md) !important;
-            background-color: var(--backgroundColor) !important; /* Match app background or slightly lighter */
-            color: var(--textColor) !important;
-        }
-        [data-testid="stChatMessage"] { /* Chat Message Bubbles */
-            border-radius: var(--border-radius-lg);
-            padding: var(--spacing-md) 1.25rem;
-            margin-bottom: var(--spacing-md);
-            box-shadow: var(--shadow-light);
-            border: 1px solid transparent;
-            max-width: 85%; /* Prevent bubbles from taking full width */
-        }
-        /* User Message */
-        [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
-            background-color: var(--primaryColor);
-            color: white;
-            margin-left: auto; /* Align user messages to the right */
-            border-top-right-radius: var(--border-radius-sm);
-        }
-        /* Assistant Message */
-        [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
-            background-color: var(--secondaryBackgroundColor);
-            color: var(--textColor);
-            margin-right: auto; /* Align assistant messages to the left */
-            border-top-left-radius: var(--border-radius-sm);
-        }
-
-        /* Horizontal Rule / Divider */
-        hr {
-            margin-top: var(--spacing-md); margin-bottom: var(--spacing-md); border: 0;
-            border-top: 1px solid var(--divider-color, #262730);
-        }
+        .settings-panel { border: 1px solid var(--divider-color, #333); border-radius: var(--border-radius-md); padding: var(--spacing-md); margin-top: var(--spacing-sm); margin-bottom: var(--spacing-md); background-color: color-mix(in srgb, var(--backgroundColor) 50%, var(--secondaryBackgroundColor)); }
+        .settings-panel .stTextInput input { border-color: var(--divider-color, #444) !important; }
+        [data-testid="stChatInputContainer"] { background-color: var(--secondaryBackgroundColor); border-top: 1px solid var(--divider-color, #262730); padding: var(--spacing-sm) var(--spacing-md); }
+        [data-testid="stChatInput"] textarea { border-color: var(--divider-color, #444) !important; border-radius: var(--border-radius-md) !important; background-color: var(--backgroundColor) !important; color: var(--textColor) !important; }
+        [data-testid="stChatMessage"] { border-radius: var(--border-radius-lg); padding: var(--spacing-md) 1.25rem; margin-bottom: var(--spacing-md); box-shadow: var(--shadow-light); border: 1px solid transparent; max-width: 85%; }
+        [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] { background-color: var(--primaryColor); color: white; margin-left: auto; border-top-right-radius: var(--border-radius-sm); }
+        [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] { background-color: var(--secondaryBackgroundColor); color: var(--textColor); margin-right: auto; border-top-left-radius: var(--border-radius-sm); }
+        hr { margin-top: var(--spacing-md); margin-bottom: var(--spacing-md); border: 0; border-top: 1px solid var(--divider-color, #262730); }
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -647,22 +576,17 @@ if app_requires_api_key_setup:
     else:
         st.info("Please configure your OpenRouter API Key to use the application.")
 
-    st.markdown(
-        "You can get a key from [OpenRouter.ai Keys](https://openrouter.ai/keys). "
-         "Enter it below to continue."
-     )
+    st.markdown( "You can get a key from [OpenRouter.ai Keys](https://openrouter.ai/keys). Enter it below to continue." )
 
     new_key_input_val = st.text_input(
         "Enter OpenRouter API Key", type="password", key="api_key_setup_input",
-        value="",
-        placeholder="sk-or-..."
+        value="", placeholder="sk-or-..."
     )
 
     if st.button("Save and Validate API Key", key="save_api_key_setup_button", use_container_width=True, type="primary"):
         if is_api_key_valid(new_key_input_val):
             st.session_state.openrouter_api_key = new_key_input_val
             _save_app_config(new_key_input_val)
-
             st.session_state.api_key_auth_failed = False
 
             with st.spinner("Validating API Key..."):
@@ -670,7 +594,7 @@ if app_requires_api_key_setup:
 
             if st.session_state.api_key_auth_failed:
                  st.error("Authentication failed with the provided API Key. Please check the key and try again.")
-                 time.sleep(0.5)
+                 time.sleep(0.5) # Give user time to read error before potential rerun
                  st.rerun()
             elif fetched_credits_data == (None, None, None):
                 st.error("Could not validate API Key. There might be a network issue or an unexpected problem with the API provider. Please try again.")
@@ -689,10 +613,10 @@ if app_requires_api_key_setup:
     st.markdown("---")
     st.caption("Your API key is stored locally in `app_config.json` and used only to communicate with the OpenRouter API.")
 
-else:
+else: # API key is valid or assumed valid (will be checked on API calls)
     st.set_page_config(
         page_title="OpenRouter Chat",
-        layout="wide", # Changed to wide, chat apps usually benefit from this
+        layout="wide", 
         initial_sidebar_state="expanded"
     )
     load_custom_css()
@@ -714,44 +638,45 @@ else:
 
     if needs_save_session:
        _save(SESS_FILE, sessions)
-       st.rerun()
+       st.rerun() # Rerun to ensure UI consistency after session changes
 
+    # Initialize or refresh credits
     if "credits" not in st.session_state:
          st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0}
          st.session_state.credits_ts = 0
 
-    credits_are_stale = time.time() - st.session_state.get("credits_ts", 0) > 3600
-    credits_are_default = st.session_state.credits.get("total") == 0.0 and \
-                          st.session_state.credits.get("used") == 0.0 and \
-                          st.session_state.credits.get("remaining") == 0.0 and \
-                          st.session_state.credits_ts != 0
+    credits_are_stale = time.time() - st.session_state.get("credits_ts", 0) > 3600 # 1 hour
+    credits_are_default_and_old = (
+        st.session_state.credits.get("total") == 0.0 and
+        st.session_state.credits.get("used") == 0.0 and
+        st.session_state.credits.get("remaining") == 0.0 and
+        st.session_state.credits_ts != 0 and # Was set once
+        time.time() - st.session_state.credits_ts > 300 # But old (5 mins)
+    )
+    credits_never_fetched = st.session_state.credits_ts == 0
 
-    if credits_are_stale or credits_are_default:
-        logging.info("Refreshing credits (stale or default values).")
+    if credits_are_stale or credits_are_default_and_old or credits_never_fetched:
+        logging.info("Refreshing credits (stale, default, or never fetched).")
         credits_data = get_credits()
 
         if st.session_state.get("api_key_auth_failed"):
-            # This error will be shown in the main panel if chat interaction triggers it.
-            # For now, just log it here, the main panel will handle user-facing error.
-            logging.error("API Key authentication failed during credit refresh.")
-            # No st.rerun() or st.stop() here, let the main flow decide.
-
+            logging.error("API Key authentication failed during credit refresh. Setup screen may appear on next interaction.")
+        
         if credits_data != (None, None, None):
             st.session_state.credits["total"], st.session_state.credits["used"], st.session_state.credits["remaining"] = credits_data
             st.session_state.credits_ts = time.time()
-        else:
-            st.session_state.credits_ts = time.time() # Update timestamp even on failure to prevent rapid retries
+        else: # Failed to get credits
+            st.session_state.credits_ts = time.time() # Update timestamp to prevent rapid retries
             if not all(isinstance(st.session_state.credits.get(k), (int,float)) for k in ["total", "used", "remaining"]):
-                 st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0}
+                 st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0} # Reset to defaults if corrupted
 
 
     # ------------------------- Sidebar -----------------------------
     with st.sidebar:
-        # Settings Toggle Button
         settings_button_label = "⚙️ Close Settings" if st.session_state.settings_panel_open else "⚙️ Settings"
         if st.button(settings_button_label, key="toggle_settings_button_sidebar", use_container_width=True):
             st.session_state.settings_panel_open = not st.session_state.settings_panel_open
-            st.rerun() # Rerun to reflect button label change and panel visibility
+            st.rerun()
 
         if st.session_state.get("settings_panel_open"):
             st.markdown("<div class='settings-panel'>", unsafe_allow_html=True)
@@ -773,21 +698,21 @@ else:
                 if is_api_key_valid(new_key_input_sidebar):
                     st.session_state.openrouter_api_key = new_key_input_sidebar
                     _save_app_config(new_key_input_sidebar)
-                    st.session_state.api_key_auth_failed = False
+                    st.session_state.api_key_auth_failed = False # Reset flag
 
                     with st.spinner("Validating new API key..."):
-                        credits_data = get_credits()
+                        credits_data = get_credits() # This will set api_key_auth_failed if it fails
 
                     if st.session_state.api_key_auth_failed:
                         st.error("New API Key failed authentication. Further actions may require re-setup.")
                     elif credits_data == (None,None,None):
                         st.warning("Could not validate the new API key. Key is saved, but functionality may be affected.")
-                    else:
+                    else: # Key is valid and credits fetched
                         st.success("New API Key saved and validated!")
                         st.session_state.credits["total"],st.session_state.credits["used"],st.session_state.credits["remaining"] = credits_data
                         st.session_state.credits_ts = time.time()
-
-                    st.session_state.settings_panel_open = False # Close panel on save
+                    
+                    st.session_state.settings_panel_open = False 
                     time.sleep(0.8)
                     st.rerun()
                 elif not new_key_input_sidebar:
@@ -797,73 +722,55 @@ else:
             st.markdown("</div>", unsafe_allow_html=True)
         st.divider()
 
-
         logo_title_cols = st.columns([1, 4], gap="small")
-        with logo_title_cols[0]: st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=48) # Adjusted width
+        with logo_title_cols[0]: st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=48)
         with logo_title_cols[1]: st.title("OpenRouter Chat")
         st.divider()
 
-        # New Quota Display
         with st.expander("⚡ DAILY MODEL QUOTAS", expanded=True):
-            active_model_keys = sorted(MODEL_MAP.keys())
-
-            if not active_model_keys:
+            active_model_keys_for_display = sorted(MODEL_MAP.keys())
+            if not active_model_keys_for_display:
                 st.caption("No models configured for quota tracking.")
             else:
-                quota_cols = st.columns(len(active_model_keys))
-
-                for i, m_key in enumerate(active_model_keys):
+                # Ensure quotas are up-to-date before displaying
+                _ensure_quota_data_is_current() 
+                
+                quota_cols = st.columns(len(active_model_keys_for_display))
+                for i, m_key in enumerate(active_model_keys_for_display):
                     with quota_cols[i]:
-                        left, _, _ = remaining(m_key)
-                        lim, _, _  = PLAN[m_key]
+                        left_d, _, _ = remaining(m_key) # remaining() itself calls _ensure_quota_data_is_current
+                        lim_d, _, _  = PLAN.get(m_key, (0,0,0))
 
-                        is_unlimited = lim > 900_000
-
+                        is_unlimited = lim_d > 900_000 # Arbitrary large number for "unlimited"
                         if is_unlimited:
-                            pct_float = 1.0
-                            fill_width_val = 100
-                            left_display = "∞"
-                        elif lim > 0:
-                            pct_float = max(0.0, min(1.0, left / lim))
-                            fill_width_val = int(pct_float * 100)
-                            left_display = str(left)
-                        else:
-                            pct_float = 0.0
-                            fill_width_val = 0
-                            left_display = "0"
-
-                        if pct_float > 0.5:
-                            bar_color = "#4caf50" # Green
-                        elif pct_float > 0.25:
-                            bar_color = "#ffc107" # Amber
-                        else:
-                            bar_color = "#f44336" # Red
-
-                        if is_unlimited:
-                            bar_color = "var(--primaryColor)" # Use theme primary for unlimited
+                            pct_float, fill_width_val, left_display = 1.0, 100, "∞"
+                        elif lim_d > 0:
+                            pct_float = max(0.0, min(1.0, left_d / lim_d))
+                            fill_width_val, left_display = int(pct_float * 100), str(left_d)
+                        else: # lim_d is 0 or less (misconfiguration or no plan)
+                            pct_float, fill_width_val, left_display = 0.0, 0, "0"
+                        
+                        bar_color = "#f44336" # Red (default for 0 or low)
+                        if pct_float > 0.5: bar_color = "#4caf50" # Green
+                        elif pct_float > 0.25: bar_color = "#ffc107" # Amber
+                        if is_unlimited: bar_color = "var(--primaryColor)"
 
                         emoji_char = EMOJI.get(m_key, "❔")
-
                         st.markdown(f"""
                             <div class="compact-quota-item">
                                 <div class="cq-info">{emoji_char} <b>{m_key}</b></div>
-                                <div class="cq-bar-track">
-                                    <div class="cq-bar-fill" style="width: {fill_width_val}%; background-color: {bar_color};"></div>
-                                </div>
+                                <div class="cq-bar-track"><div class="cq-bar-fill" style="width: {fill_width_val}%; background-color: {bar_color};"></div></div>
                                 <div class="cq-value" style="color: {bar_color};">{left_display}</div>
-                            </div>
-                        """, unsafe_allow_html=True)
+                            </div>""", unsafe_allow_html=True)
         st.divider()
-
 
         current_session_is_truly_blank = (st.session_state.sid in sessions and
                                           sessions[st.session_state.sid].get("title") == "New chat" and
                                           not sessions[st.session_state.sid].get("messages"))
 
         if st.button("➕ New chat", key="new_chat_button_top", use_container_width=True, disabled=current_session_is_truly_blank):
-            old_sid = st.session_state.sid
-            st.session_state.sid = _new_sid()
-            _delete_unused_blank_sessions(keep_sid=st.session_state.sid)
+            st.session_state.sid = _new_sid() # This creates the new session
+            _delete_unused_blank_sessions(keep_sid=st.session_state.sid) # Clean up others
             _save(SESS_FILE, sessions)
             st.rerun()
 
@@ -872,17 +779,16 @@ else:
         sorted_sids = sorted(valid_sids, key=lambda s: int(s), reverse=True)
 
         for sid_key in sorted_sids:
-            if sid_key not in sessions: continue
+            if sid_key not in sessions: continue # Should not happen if valid_sids is from sessions
             title = sessions[sid_key].get("title", "Untitled")
             display_title = title[:25] + ("…" if len(title) > 25 else "")
             is_active_chat = st.session_state.sid == sid_key
 
-            # The CSS will style disabled buttons to look "active"
             if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True, disabled=is_active_chat):
-                if not is_active_chat: # This condition is technically redundant due to disabled state, but good for clarity
+                if not is_active_chat: 
                     _delete_unused_blank_sessions(keep_sid=sid_key)
                     st.session_state.sid = sid_key
-                    _save(SESS_FILE, sessions)
+                    _save(SESS_FILE, sessions) # Save potentially cleaned sessions
                     st.rerun()
         st.divider()
 
@@ -896,7 +802,7 @@ else:
         st.divider()
 
         with st.expander("Account stats (credits)", expanded=False):
-            if st.button("Refresh Credits", key="refresh_credits_button_sidebar"): # Changed key to avoid conflict
+            if st.button("Refresh Credits", key="refresh_credits_button_sidebar"):
                  with st.spinner("Refreshing credits..."):
                     credits_data = get_credits()
                  if not st.session_state.get("api_key_auth_failed"):
@@ -926,89 +832,110 @@ else:
 
 
     # ------------------------- Main Chat Panel ---------------------
-    if st.session_state.sid not in sessions:
-        logging.error(f"Current session ID {st.session_state.sid} missing from sessions. Resetting to new chat.")
+    if st.session_state.sid not in sessions: # Should be caught earlier, but defensive
+        logging.error(f"CRITICAL: Current session ID {st.session_state.sid} missing from sessions at main panel. Resetting.")
         st.session_state.sid = _new_sid()
         _save(SESS_FILE, sessions)
         st.rerun()
-        st.stop()
+        st.stop() # Stop further execution in this broken state
 
     current_sid = st.session_state.sid
     chat_history = sessions[current_sid]["messages"]
 
     for msg in chat_history:
         role = msg.get("role", "assistant")
-        avatar_char = "👤" if role == "user" else None # Avatar for user
-
+        avatar_char = "👤" if role == "user" else None 
         if role == "assistant":
             m_key = msg.get("model")
-            if m_key == FALLBACK_MODEL_KEY:
-                avatar_char = FALLBACK_MODEL_EMOJI
-            elif m_key in EMOJI:
-                avatar_char = EMOJI[m_key]
-            else:
-                avatar_char = "🤖" # Default assistant avatar
-
+            if m_key == FALLBACK_MODEL_KEY: avatar_char = FALLBACK_MODEL_EMOJI
+            elif m_key in EMOJI: avatar_char = EMOJI[m_key]
+            else: avatar_char = "🤖" 
         with st.chat_message(role, avatar=avatar_char):
              st.markdown(msg.get("content", "*empty message*"))
 
     if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
         chat_history.append({"role":"user","content":prompt})
-        with st.chat_message("user", avatar="👤"): st.markdown(prompt) # Ensure user avatar here too
+        with st.chat_message("user", avatar="👤"): st.markdown(prompt)
 
         if not is_api_key_valid(st.session_state.get("openrouter_api_key")) or st.session_state.get("api_key_auth_failed"):
             st.error("API Key is not configured or has failed. Please set it up in ⚙️ Settings.")
+            # Potentially rerun to show setup screen if api_key_auth_failed was set by a background check
+            if st.session_state.get("api_key_auth_failed"):
+                time.sleep(0.5) # Allow user to see error
+                st.rerun() 
         else:
+            # Ensure quotas are current before making routing decisions
+            _ensure_quota_data_is_current()
             allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
+            
             use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (
                 False, None, None, None, "🤖"
             )
 
             if not allowed_standard_models:
-                logging.info(f"Using fallback (all quotas used): {FALLBACK_MODEL_ID}")
+                logging.info(f"Using fallback (all standard quotas used): {FALLBACK_MODEL_ID}")
                 st.info(f"{FALLBACK_MODEL_EMOJI} Daily quotas for standard models exhausted. Using free fallback.")
                 use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
             else:
-                # Pass the current chat_history (which includes the latest prompt)
                 routed_key = route_choice(prompt, allowed_standard_models, chat_history)
 
-                if st.session_state.get("api_key_auth_failed"):
+                if st.session_state.get("api_key_auth_failed"): # Check if router call failed auth
                      st.error("API Authentication failed during model routing. Please check your API Key in Settings.")
+                     # No chosen_model_key, let it go to fallback logic or error handling below
+                elif routed_key == FALLBACK_MODEL_KEY: # Router explicitly chose fallback (e.g. no models configured for it)
+                    logging.warning(f"Router chose internal fallback key. Using free fallback: {FALLBACK_MODEL_ID}.")
+                    st.warning(f"{FALLBACK_MODEL_EMOJI} Router determined no standard models suitable or available. Using free fallback.")
+                    use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
                 elif routed_key not in MODEL_MAP or routed_key not in allowed_standard_models:
-                    logging.warning(f"Router chose '{routed_key}' (invalid or no quota). Using fallback {FALLBACK_MODEL_ID}.")
+                    logging.warning(f"Router chose '{routed_key}' (invalid or no quota). Using free fallback {FALLBACK_MODEL_ID}.")
                     st.warning(f"{FALLBACK_MODEL_EMOJI} Model routing issue or chosen model '{routed_key}' has no quota. Using free fallback.")
                     use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
-                else:
+                else: # Valid standard model chosen
                     chosen_model_key = routed_key
                     model_id_to_use = MODEL_MAP[chosen_model_key]
                     max_tokens_api = MAX_TOKENS[chosen_model_key]
                     avatar_resp = EMOJI.get(chosen_model_key, "🤖")
+            
+            # If no model could be determined (e.g. auth fail before routing logic completed fully)
+            if not model_id_to_use and not st.session_state.get("api_key_auth_failed"):
+                 logging.error("No model_id_to_use determined, but API key auth not (yet) flagged as failed. This is unexpected. Defaulting to fallback.")
+                 st.warning(f"{FALLBACK_MODEL_EMOJI} An unexpected issue occurred selecting a model. Using free fallback.")
+                 use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
 
-            with st.chat_message("assistant", avatar=avatar_resp):
-                response_placeholder, full_response = st.empty(), ""
-                api_call_ok = True
 
-                for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
-                    if st.session_state.get("api_key_auth_failed"):
-                        full_response = "❗ **API Authentication Error**: Your API Key failed. Please update it in ⚙️ Settings."
-                        api_call_ok = False; break
-                    if err_msg:
-                        full_response = f"❗ **API Error**: {err_msg}"
-                        api_call_ok = False; break
-                    if chunk:
-                       full_response += chunk
-                       response_placeholder.markdown(full_response + "▌")
+            if model_id_to_use: # Proceed only if a model_id is set (either standard or fallback)
+                with st.chat_message("assistant", avatar=avatar_resp):
+                    response_placeholder, full_response = st.empty(), ""
+                    api_call_ok = True
 
-                response_placeholder.markdown(full_response)
+                    for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
+                        if st.session_state.get("api_key_auth_failed"): # Check again after stream call
+                            full_response = "❗ **API Authentication Error**: Your API Key failed. Please update it in ⚙️ Settings."
+                            api_call_ok = False; break
+                        if err_msg:
+                            full_response = f"❗ **API Error**: {err_msg}"
+                            api_call_ok = False; break
+                        if chunk:
+                           full_response += chunk
+                           response_placeholder.markdown(full_response + "▌")
 
-            chat_history.append({"role":"assistant","content":full_response,"model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY})
+                    response_placeholder.markdown(full_response)
 
-            if api_call_ok:
-                if not use_fallback and chosen_model_key:
-                   record_use(chosen_model_key)
-                if sessions[current_sid]["title"] == "New chat" and prompt:
-                   sessions[current_sid]["title"] = _autoname(prompt)
-                   _delete_unused_blank_sessions(keep_sid=current_sid)
+                chat_history.append({"role":"assistant","content":full_response,"model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY})
 
-            _save(SESS_FILE, sessions)
-            st.rerun()
+                if api_call_ok:
+                    if not use_fallback and chosen_model_key and chosen_model_key in MODEL_MAP: # Ensure it's a standard model
+                       record_use(chosen_model_key)
+                    if sessions[current_sid]["title"] == "New chat" and prompt:
+                       sessions[current_sid]["title"] = _autoname(prompt)
+                       _delete_unused_blank_sessions(keep_sid=current_sid)
+
+                _save(SESS_FILE, sessions)
+                st.rerun() # Rerun to update UI (e.g. quotas, chat title)
+            elif st.session_state.get("api_key_auth_failed"):
+                 # Error message already shown by previous block, this rerun just ensures setup if needed
+                 time.sleep(0.5)
+                 st.rerun()
+            else: # Should not be reached if model_id_to_use is None and no auth error
+                st.error("An unexpected error occurred. Could not determine a model for the request.")
+                logging.error("Reached unexpected state where model_id_to_use is None and no API auth failure was caught.")
