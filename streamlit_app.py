@@ -15,7 +15,7 @@ OPENROUTER_API_KEY  = "sk-or-v1-144b2d5e41cb0846ed25c70e0b7337ee566584137ed629c1
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT     = 120
 
-FALLBACK_MODEL_ID = "deepseek/deepseek-chat-v3-0324:free"
+FALLBACK_MODEL_ID = "deepseek/deepseek-chat-v3-0324:free" # Example, ensure this model is actually free/available
 FALLBACK_MODEL_KEY = "_FALLBACK_"
 FALLBACK_MODEL_EMOJI = "🆓"
 FALLBACK_MODEL_MAX_TOKENS = 8000
@@ -27,23 +27,23 @@ MODEL_MAP = {
     "D": "deepseek/deepseek-r1",
     "F": "google/gemini-2.5-flash-preview"
 }
-ROUTER_MODEL_ID = "mistralai/mistral-7b-instruct:free"
+ROUTER_MODEL_ID = "mistralai/mistral-7b-instruct:free" # Example, ensure this model is available
 
 MAX_TOKENS = {"A": 16_000, "B": 8_000, "C": 16_000, "D": 8_000, "F": 8_000}
-PLAN = {
+PLAN = { # (Daily, Weekly, Monthly)
     "A": (10, 70, 300), "B": (5, 35, 150), "C": (1, 7, 30),
-    "D": (4, 28, 120), "F": (180, 500, 2000)
+    "D": (4, 28, 120), "F": (180, 500, 2000) # 'F' is often a free/high-limit tier
 }
 EMOJI = {"A": "🌟", "B": "🔷", "C": "🟥", "D": "🟢", "F": "🌀"}
-MODEL_DESCRIPTIONS = {
-    "A": "🌟 (gemini-2.5-pro-preview) – top-quality, creative, expensive.",
-    "B": "🔷 (o4-mini) – mid-stakes reasoning, cost-effective.",
-    "C": "🟥 (chatgpt-4o-latest) – polished/empathetic, pricier.",
-    "D": "🟢 (deepseek-r1) – cheap factual reasoning.",
-    "F": "🌀 (gemini-2.5-flash-preview) – quick, free-tier, general purpose."
+MODEL_DESCRIPTIONS = { # For popover details
+    "A": "🌟 (gemini-2.5-pro-preview) – Top-quality, creative, expensive.",
+    "B": "🔷 (o4-mini) – Mid-stakes reasoning, cost-effective.",
+    "C": "🟥 (chatgpt-4o-latest) – Polished/empathetic, pricier.",
+    "D": "🟢 (deepseek-r1) – Cheap factual reasoning.",
+    "F": "🌀 (gemini-2.5-flash-preview) – Quick, general purpose."
 }
 
-TZ = ZoneInfo("Australia/Sydney")
+TZ = ZoneInfo("Australia/Sydney") # Replace with your timezone
 DATA_DIR   = Path(__file__).parent
 SESS_FILE  = DATA_DIR / "chat_sessions.json"
 QUOTA_FILE = DATA_DIR / "quotas.json"
@@ -136,22 +136,32 @@ def streamed(model: str, messages: list, max_tokens_out: int):
 
 # ───────────────────────── Model Routing ───────────────────────
 def route_choice(user_msg: str, allowed: list[str]) -> str:
-    if not allowed: return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F")
+    if not allowed: return "F" if "F" in MODEL_MAP else (list(MODEL_MAP.keys())[0] if MODEL_MAP else "F") # Fallback if no models allowed (should not happen)
     if len(allowed) == 1: return allowed[0]
+    
     system_lines = ["You are an intelligent model-routing assistant.", "Select ONLY one letter from the following available models:"]
     for k in allowed:
-        if k in MODEL_DESCRIPTIONS: system_lines.append(f"- {k}: {MODEL_DESCRIPTIONS[k]}")
+        if k in MODEL_DESCRIPTIONS: 
+            # Provide a concise description for routing decision
+            desc_for_router = MODEL_DESCRIPTIONS[k].split('–')[1].strip() if '–' in MODEL_DESCRIPTIONS[k] else MODEL_DESCRIPTIONS[k]
+            system_lines.append(f"- {k}: {MODEL_MAP[k].split('/')[-1]} ({desc_for_router})")
+        else:
+            system_lines.append(f"- {k}: {MODEL_MAP[k].split('/')[-1]}") # Fallback if no description
+            
     system_lines.extend(["Based on the user's query, choose the letter that best balances quality, speed, and cost-sensitivity.", "Respond with ONLY the single capital letter. No extra text."])
+    
     router_messages = [{"role": "system", "content": "\n".join(system_lines)}, {"role": "user", "content": user_msg}]
-    payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10}
+    payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10, "temperature": 0.1} # Low temp for deterministic choice
+    
     try:
         r = api_post(payload_r); r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"].strip().upper()
         logging.info(f"Router raw response: {text}")
-        for ch in text:
+        for ch in text: # Pick the first valid character
             if ch in allowed: return ch
     except Exception as e: logging.error(f"Router call error: {e}")
-    fallback_choice = "F" if "F" in allowed else allowed[0]
+    
+    fallback_choice = "F" if "F" in allowed else allowed[0] # Prefer 'F' if available and allowed
     logging.warning(f"Router fallback to model: {fallback_choice}"); return fallback_choice
 
 # ───────────────────── Credits Endpoint ───────────────────────
@@ -169,220 +179,246 @@ def load_custom_css():
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
         }
-        /* Ensure main content area uses Streamlit's theme background */
+        /* Ensure main content area uses specified background */
         [data-testid="stAppViewContainer"] > .main {
-            background-color: var(--background-color);
+            background-color: #171923; /* Dark main area */
+        }
+        html[data-theme="light"] [data-testid="stAppViewContainer"] > .main {
+            background-color: #FFFFFF; /* Light main area */
         }
         [data-testid="stAppViewContainer"] > .main > .block-container {
-            padding-top: 2.5rem; 
-            padding-bottom: 2.5rem;
-            max-width: 900px; /* Optional: Constrain main content width for readability */
+            padding-top: 2rem; 
+            padding-bottom: 2rem;
+            max-width: 860px; 
         }
 
         /* Sidebar Styling */
         [data-testid="stSidebar"] {
-            background-color: #1F2937; /* Consistent dark sidebar */
-            padding: 1.5rem 1rem;
-            border-right: 1px solid #374151; 
+            background-color: #1A202C; /* Darker sidebar */
+            padding: 1.25rem 1rem;
+            border-right: 1px solid #2D3748; 
         }
         html[data-theme="light"] [data-testid="stSidebar"] {
-            background-color: #F3F4F6; /* Lighter grey for light theme sidebar */
-            border-right: 1px solid #E5E7EB;
+            background-color: #F7FAFC; /* Light sidebar */
+            border-right: 1px solid #E2E8F0;
         }
 
         /* Sidebar Header (Logo + Title) */
+        /* Targeting might need adjustment if Streamlit's DOM changes */
         [data-testid="stSidebar"] > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) { 
-            display: flex !important; align-items: center !important; gap: 12px; 
-            margin-bottom: 2rem !important; padding-bottom: 1.25rem;
-            border-bottom: 1px solid #4B5563; /* Slightly more visible border in dark sidebar */
-        }
-        html[data-theme="light"] [data-testid="stSidebar"] > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) {
-            border-bottom: 1px solid #D1D5DB;
+            display: flex !important; align-items: center !important; gap: 10px; 
+            margin-bottom: 0 !important; 
+            padding-bottom: 0;
+            border-bottom: none; 
         }
         [data-testid="stSidebar"] .stImage > img {
-            border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            width: 42px !important; height: 42px !important;
+            border-radius: 6px; width: 38px !important; height: 38px !important;
         }
         [data-testid="stSidebar"] h1 { /* App Title */
-            font-size: 1.5rem !important; color: #E5E7EB; /* Lighter text for dark bg */
+            font-size: 1.3rem !important; color: #E2E8F0;
             font-weight: 600; margin-bottom: 0;
         }
-        html[data-theme="light"] [data-testid="stSidebar"] h1 { color: var(--text-color); }
+        html[data-theme="light"] [data-testid="stSidebar"] h1 { color: #2D3748; }
 
-
-        /* Sidebar Subheaders */
-        [data-testid="stSidebar"] h3 {
-            font-size: 0.75rem !important; text-transform: uppercase;
-            font-weight: 500; /* Less bold */
-            color: #9CA3AF; /* Muted grey for dark theme subheaders */
-            margin-top: 2rem; margin-bottom: 0.8rem; letter-spacing: 0.025em;
-        }
-        html[data-theme="light"] [data-testid="stSidebar"] h3 { color: #6B7280; }
-
-        /* Sidebar Buttons (Session list, New Chat) */
-        [data-testid="stSidebar"] .stButton > button {
-            border-radius: 6px; border: none; 
-            padding: 0.65em 0.8em; font-size: 0.9rem; font-weight: 500;
-            background-color: transparent; 
-            color: #D1D5DB; /* Default button text color in dark sidebar */
-            transition: background-color 0.2s, color 0.2s;
-            width: 100%; margin-bottom: 0.25rem; text-align: left;
-            display: flex; align-items: center; gap: 8px; /* Gap for icon and text */
-        }
-        html[data-theme="light"] [data-testid="stSidebar"] .stButton > button { color: #4B5563; }
-
-        [data-testid="stSidebar"] .stButton > button:hover {
-            background-color: #374151; /* Darker hover for dark sidebar */
-            color: #F9FAFB; /* Brighter text on hover */
-        }
-        html[data-theme="light"] [data-testid="stSidebar"] .stButton > button:hover {
-            background-color: #E5E7EB; color: var(--primary-color);
+        /* Primary New Chat Button (Streamlit handles most of type="primary") */
+        [data-testid="stSidebar"] .stButton > button[kind="primary"] {
+             font-weight: 500; /* Ensure font weight */
         }
         
-        /* Specifically target the "New Chat" button if it needs to be different,
-           but for screenshot match, it's similar to other buttons */
-        [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button {
-            /* Inherits general button style, looks like screenshot */
-            font-weight: 500; /* Matches other buttons */
+        /* Sidebar Subheaders */
+        [data-testid="stSidebar"] h3 {
+            font-size: 0.7rem !important; text-transform: uppercase;
+            font-weight: 600; color: #A0AEC0;
+            margin-top: 1.5rem; margin-bottom: 0.75rem; letter-spacing: 0.05em;
         }
-        [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:hover {
-             background-color: var(--primary-color-darker, #4a5568); /* Slightly different hover for New Chat if desired */
-             color: white;
+        html[data-theme="light"] [data-testid="stSidebar"] h3 { color: #718096; }
+
+        /* --- Custom Model Usage Display --- */
+        .model-usage-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.3rem 0.1rem; 
+            margin-bottom: 0.1rem; 
+            font-size: 0.85rem;
         }
-         html[data-theme="light"] [data-testid="stSidebar"] [data-testid="stButton-new_chat_button_top"] > button:hover {
-             background-color: var(--primary-color);
-             color: white;
+        .model-info { display: flex; align-items: center; gap: 7px; }
+        .model-emoji { font-size: 1rem; }
+        .model-key-name { color: #CBD5E0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;}
+        html[data-theme="light"] .model-key-name { color: #4A5568; }
+        .quota-text {
+            font-weight: 500; color: #A0AEC0; font-size: 0.8rem;
+            background-color: #2D3748; 
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        html[data-theme="light"] .quota-text { color: #4A5568; background-color: #E2E8F0; }
+
+        .progress-bar-container {
+            height: 6px;
+            background-color: #2D3748; 
+            border-radius: 3px;
+            margin-bottom: 0.4rem; /* Space before popover button */
+            overflow: hidden;
+        }
+        html[data-theme="light"] .progress-bar-container { background-color: #E2E8F0; }
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out;
+        }
+        
+        /* Popover button (for model details) */
+        [data-testid="stSidebar"] button[data-testid*="stPopover"] {
+            font-size: 0.75rem !important;
+            color: #718096 !important; 
+            padding: 0.1rem 0.4rem !important;
+            margin-top: -0.1rem !important; 
+            background: transparent !important;
+            border: 1px solid #4A5568 !important;
+            border-radius: 4px !important;
+            line-height: 1.2 !important;
+            min-height: auto !important;
+        }
+        [data-testid="stSidebar"] button[data-testid*="stPopover"]:hover {
+            color: var(--primary-color) !important;
+            border-color: var(--primary-color) !important;
+            background-color: rgba(var(--primary-color-rgb), 0.1) !important;
         }
 
 
-        /* Active session button (with 🔹) */
-        [data-testid="stSidebar"] .stButton > button:has(span:contains("🔹")) { 
-             color: var(--primary-color); /* Use Streamlit's primary color for active */
-             background-color: color-mix(in srgb, var(--primary-color) 15%, transparent);
-             font-weight: 500;
+        /* Sidebar Chat List Buttons */
+        [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) { /* Exclude primary button */
+            border-radius: 6px; border: none; 
+            padding: 0.6rem 0.75rem; font-size: 0.875rem; font-weight: 400;
+            background-color: transparent; color: #CBD5E0;
+            transition: background-color 0.2s, color 0.2s, border-left-color 0.2s;
+            width: 100%; margin-bottom: 0.2rem; text-align: left;
+            display: flex; align-items: center; gap: 8px;
+            border-left: 3px solid transparent;
         }
-         /* Alternative for non :has browsers, if you wrap in span class="active-chat-item" */
-        [data-testid="stSidebar"] .stButton > button .active-chat-item {
-            color: var(--primary-color); font-weight: 500;
-        }
+        html[data-theme="light"] [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) { color: #4A5568; }
 
+        [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):hover {
+            background-color: #2D3748; color: #F7FAFC;
+            border-left-color: #4A5568;
+        }
+        html[data-theme="light"] [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):hover {
+            background-color: #E2E8F0; color: var(--primary-color);
+            border-left-color: #CBD5E0;
+        }
+        
+        /* Active session button */
+        [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):has(span:contains("🔹")) { 
+            color: var(--primary-color) !important; 
+            background-color: color-mix(in srgb, var(--primary-color) 10%, transparent);
+            border-left: 3px solid var(--primary-color);
+            font-weight: 500;
+        }
 
         /* Sidebar Caption ("Current chat is empty...") */
         [data-testid="stSidebar"] .stCaption {
-            color: #9CA3AF; font-size: 0.8rem; text-align: left;
+            color: #718096; font-size: 0.8rem; text-align: left;
             padding: 0.2rem 0.1rem 1rem 0.1rem; line-height: 1.4;
         }
         html[data-theme="light"] [data-testid="stSidebar"] .stCaption { color: #6B7280; }
 
+        /* General Separator (for st.markdown("---")) */
+        [data-testid="stSidebar"] hr {
+            margin: 1.25rem -1rem; /* Extend to edges */
+            border: 0;
+            border-top: 1px solid #2D3748;
+        }
+        html[data-theme="light"] [data-testid="stSidebar"] hr { border-top-color: #E2E8F0; }
 
-        /* Custom Token Jar Styling */
-        .token-jar-container { max-width: 52px; margin: 0 auto 0.4rem auto; text-align: center; }
-        .token-jar {
-            height: 55px; border: 1px solid #4B5563; border-radius: 7px;
-            background: #2d3748; /* Slightly different dark shade for jar */
-            position: relative; overflow: hidden; margin-bottom: 4px;
-        }
-        html[data-theme="light"] .token-jar { border-color: #D1D5DB; background: #E5E7EB; }
-        .token-jar-fill { position: absolute; bottom: 0; width: 100%; transition: height 0.3s ease-in-out; }
-        .token-jar-emoji { position: absolute; top: 6px; width:100%; font-size:18px; line-height:1; }
-        .token-jar-key {
-            position: absolute; bottom: 5px; width:100%; font-size:10px;
-            font-weight: 500; color: #A0AEC0; line-height:1;
-        }
-        html[data-theme="light"] .token-jar-key { color: #4A5568; }
-        .token-jar-remaining {
-            display: block; margin-top: 2px; font-size: 11px;
-            font-weight: 600; color: #CBD5E0; line-height:1;
-        }
-        html[data-theme="light"] .token-jar-remaining { color: #2D3748; }
-
-        /* Expander Styling */
-        .stExpander {
-            border: 1px solid #4B5563; border-radius: 8px; margin-bottom: 1rem;
-            background-color: transparent; 
-        }
-        html[data-theme="light"] .stExpander { border-color: #D1D5DB; }
-        .stExpander header {
-            font-weight: 500; font-size: 0.85rem; padding: 0.6rem 1rem !important;
-            background-color: #2D3748; /* Header distinct from content */
-            border-bottom: 1px solid #4B5563;
-            border-top-left-radius: 7px; border-top-right-radius: 7px;
-            color: #CBD5E0;
-        }
-        html[data-theme="light"] .stExpander header { background-color: #E5E7EB; border-color: #D1D5DB; color: #4A5568; }
-        .stExpander header:hover { background-color: #374151; }
-        html[data-theme="light"] .stExpander header:hover { background-color: #D1D5DB; }
-        .stExpander div[data-testid="stExpanderDetails"] { padding: 0.75rem 1rem; background-color: transparent; }
-
-        /* Chat Message Styling */
-        [data-testid="stChatMessage"] {
-            border-radius: 12px; padding: 12px 18px; margin-bottom: 10px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: none; max-width: 80%; line-height: 1.6;
-        }
-        [data-testid^="stChatMessageUser"] { 
-            background-color: var(--primary-color); color: white; margin-left: auto; border-bottom-right-radius: 4px; 
-        }
-        [data-testid^="stChatMessageUser"] .stMarkdown p, [data-testid^="stChatMessageUser"] .stMarkdown li { color: white !important; }
-        [data-testid^="stChatMessageAssistant"] { 
-            background-color: #2D3748; /* Darker assistant bubble for dark theme */
-            color: #E2E8F0; border-bottom-left-radius: 4px; margin-right: auto;
-        }
-        html[data-theme="light"] [data-testid^="stChatMessageAssistant"] { background-color: #F1F5F9; color: var(--text-color); }
-        [data-testid^="stChatMessageAssistant"] .stMarkdown p, [data-testid^="stChatMessageAssistant"] .stMarkdown li { color: inherit !important; }
-        
-        /* Chat Input */
-        [data-testid="stChatInput"] {
-            background-color: var(--background-color); /* Match main app background */
-            border-top: 1px solid #374151; padding: 0.75rem 0.5rem; /* Adjust padding */
-        }
-        html[data-theme="light"] [data-testid="stChatInput"] { border-top-color: #E5E7EB; }
-
-        [data-testid="stChatInput"] textarea { /* Target textarea specifically */
-            border-radius: 20px !important; /* More pronounced rounding */
-            border: 1px solid #4A5568 !important;
-            background-color: #2D3748 !important; /* Darker input field */
-            color: #E2E8F0 !important;
-            padding: 10px 15px !important;
-            line-height: 1.5 !important;
-        }
-        html[data-theme="light"] [data-testid="stChatInput"] textarea {
-            border-color: #D1D5DB !important; background-color: #FFFFFF !important; color: var(--text-color) !important;
-        }
-        [data-testid="stChatInput"] textarea:focus {
-            border-color: var(--primary-color) !important;
-            box-shadow: 0 0 0 1px var(--primary-color) !important;
-        }
-        /* Send button icon color */
-        [data-testid="stChatInput"] button svg {
-            fill: #9CA3AF; /* Muted send icon */
-        }
-        [data-testid="stChatInput"] button:hover svg {
-            fill: var(--primary-color);
-        }
-
-
-        /* Centered Welcome Message for Empty Chat */
+        /* Main Chat Area - Empty State */
         .empty-chat-container {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             min-height: 65vh; text-align: center; padding: 2rem;
         }
         .empty-chat-container img.logo-main {
-            width: 80px; height: 80px; border-radius: 16px; margin-bottom: 2rem;
+            width: 72px; height: 72px; border-radius: 12px; margin-bottom: 1.75rem;
             box-shadow: 0 4px 15px rgba(0,0,0,0.15);
         }
         .empty-chat-container h2 {
-            font-size: 1.9rem; font-weight: 600; margin-bottom: 0.8rem; color: var(--text-color);
+            font-size: 1.75rem; font-weight: 600; margin-bottom: 0.7rem; color: var(--text-color);
         }
         .empty-chat-container p {
-            font-size: 1.05rem; color: var(--text-color-secondary); max-width: 480px; line-height: 1.65;
+            font-size: 1rem; color: var(--text-color-secondary); max-width: 450px; line-height: 1.6;
         }
 
-        hr { margin: 1.8rem 0; border: 0; border-top: 1px solid #374151; }
-        html[data-theme="light"] hr { border-top-color: #E5E7EB; }
+        /* Chat Input */
+        [data-testid="stChatInput"] {
+            background-color: #1A202C; /* Match sidebar for footer consistency */
+            border-top: 1px solid #2D3748; padding: 0.75rem 1rem;
+            position: sticky; bottom: 0; /* Make chat input sticky */
+        }
+        html[data-theme="light"] [data-testid="stChatInput"] { background-color: #F7FAFC; border-top-color: #E2E8F0; }
+
+        [data-testid="stChatInput"] textarea { 
+            border-radius: 8px !important; 
+            border: 1px solid #4A5568 !important;
+            background-color: #2D3748 !important; 
+            color: #E2E8F0 !important;
+            padding: 10px 14px !important;
+            line-height: 1.5 !important;
+        }
+        html[data-theme="light"] [data-testid="stChatInput"] textarea {
+            border-color: #CBD5E0 !important; background-color: #FFFFFF !important; color: #2D3748 !important;
+        }
+        [data-testid="stChatInput"] textarea:focus {
+            border-color: var(--primary-color) !important;
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 30%, transparent) !important;
+        }
+        [data-testid="stChatInput"] button svg { fill: #A0AEC0; }
+        [data-testid="stChatInput"] button:hover svg { fill: var(--primary-color); }
+
+        /* Chat Message Bubbles */
+        [data-testid="stChatMessage"] {
+            border-radius: 10px; padding: 10px 16px; margin-bottom: 8px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: none; max-width: 75%; line-height: 1.6;
+        }
+        [data-testid^="stChatMessageUser"] { 
+            background-color: var(--primary-color); color: white; margin-left: auto; 
+            border-bottom-right-radius: 4px; border-top-left-radius: 10px; border-top-right-radius: 10px; border-bottom-left-radius: 10px;
+        }
+        [data-testid^="stChatMessageUser"] .stMarkdown p, [data-testid^="stChatMessageUser"] .stMarkdown li { color: white !important; }
+        
+        [data-testid^="stChatMessageAssistant"] { 
+            background-color: #2D3748; color: #E2E8F0; 
+            border-bottom-left-radius: 4px;  border-top-left-radius: 10px; border-top-right-radius: 10px; border-bottom-right-radius: 10px;
+            margin-right: auto;
+        }
+        html[data-theme="light"] [data-testid^="stChatMessageAssistant"] { background-color: #E9ECF2; color: #2D3748; }
+        [data-testid^="stChatMessageAssistant"] .stMarkdown p, [data-testid^="stChatMessageAssistant"] .stMarkdown li { color: inherit !important; }
+        
+        /* Expander Styling */
+        .stExpander {
+            border: 1px solid #2D3748; border-radius: 8px; margin-bottom: 1rem;
+            background-color: transparent; 
+        }
+        html[data-theme="light"] .stExpander { border-color: #CBD5E0; }
+        .stExpander header {
+            font-weight: 500; font-size: 0.8rem; padding: 0.5rem 0.8rem !important;
+            background-color: rgba(45, 55, 72, 0.5); /* Semi-transparent header */
+            border-bottom: 1px solid #2D3748;
+            border-top-left-radius: 7px; border-top-right-radius: 7px;
+            color: #A0AEC0;
+        }
+        html[data-theme="light"] .stExpander header { background-color: rgba(226, 232, 240, 0.5); border-color: #CBD5E0; color: #4A5568; }
+        .stExpander header:hover { background-color: #2D3748; }
+        html[data-theme="light"] .stExpander header:hover { background-color: #E2E8F0; }
+        .stExpander div[data-testid="stExpanderDetails"] { padding: 0.75rem 1rem; background-color: transparent; }
+
+        /* Main area scrollbar - optional subtle styling */
+        /* For Webkit browsers */
+        .main::-webkit-scrollbar { width: 8px; }
+        .main::-webkit-scrollbar-track { background: transparent; }
+        .main::-webkit-scrollbar-thumb { background-color: #4A5568; border-radius: 10px; border: 2px solid transparent; background-clip: content-box;}
+        .main::-webkit-scrollbar-thumb:hover { background-color: #718096; }
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
-
 
 # ───────────────────────── Streamlit UI ────────────────────────
 st.set_page_config(page_title="OpenRouter Chat", layout="wide", initial_sidebar_state="expanded")
@@ -403,61 +439,88 @@ if "credits" not in st.session_state:
 
 # ───────────────────────── Sidebar ─────────────────────────────
 with st.sidebar:
-    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=50) 
+    st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=38) 
     st.title("OpenRouter Chat")
-
-    st.subheader("Daily Jars (Msgs Left)")
-    active_model_keys = sorted(MODEL_MAP.keys())
-    cols = st.columns(len(active_model_keys))
-    for i, m_key in enumerate(active_model_keys):
-        left, _, _ = remaining(m_key); lim, _, _  = PLAN[m_key]
-        pct = 1.0 if lim > 900_000 else max(0.0, left / lim if lim > 0 else 0.0)
-        fill_color = "#4caf50" if pct > .5 else ("#ffc107" if pct > .25 else "#f44336")
-        cols[i].markdown(f"""<div class="token-jar-container">
-              <div class="token-jar"><div class="token-jar-fill" style="height:{int(pct*100)}%; background-color:{fill_color};"></div>
-                <div class="token-jar-emoji">{EMOJI[m_key]}</div><div class="token-jar-key">{m_key}</div></div>
-              <span class="token-jar-remaining">{'∞' if lim > 900_000 else left}</span></div>""", unsafe_allow_html=True)
-    st.divider() 
+    st.markdown("---") # Visual separator below title
 
     current_session_is_truly_blank = (st.session_state.sid in sessions and
                                       sessions[st.session_state.sid].get("title") == "New chat" and
                                       not sessions[st.session_state.sid].get("messages"))
     
-    if st.button("➕ New chat", key="new_chat_button_top", use_container_width=True, disabled=current_session_is_truly_blank):
+    if st.button("➕ New Chat", key="new_chat_button_top", use_container_width=True, type="primary", disabled=current_session_is_truly_blank):
         st.session_state.sid = _new_sid(); _save(SESS_FILE, sessions); st.rerun()
     
-    if current_session_is_truly_blank and not st.session_state.get("new_chat_button_top_clicked"): # Avoid showing caption if button was just clicked
-         st.caption("Current chat is empty. Add a message or switch.")
+    st.markdown("---") 
 
+    st.subheader("Model Usage (Daily)")
+    active_model_keys = sorted(MODEL_MAP.keys())
+    for m_key in active_model_keys:
+        left_d, _, _ = remaining(m_key) # Only showing daily for brevity in this new UI
+        lim_d, _, _  = PLAN[m_key]
+        
+        is_unlimited = lim_d > 900_000 # Heuristic for "unlimited"
+        progress_value = 1.0 if is_unlimited else (max(0.0, left_d / lim_d if lim_d > 0 else 0.0))
+        
+        try:
+            # Attempt to extract a cleaner model name (e.g., "gemini-2.5-pro-preview")
+            model_display_name = MODEL_DESCRIPTIONS[m_key].split('(')[1].split(')')[0].strip()
+        except IndexError: # Fallback if description format is unexpected
+            model_display_name = MODEL_MAP[m_key].split('/')[-1] # Basic name extraction
+
+        st.markdown(f"""
+        <div class="model-usage-item">
+            <div class="model-info">
+                <span class="model-emoji">{EMOJI.get(m_key, "❓")}</span>
+                <span class="model-key-name" title="{m_key}: {model_display_name}">{m_key}: {model_display_name}</span>
+            </div>
+            <div class="model-quota">
+                <span class="quota-text">{'∞' if is_unlimited else f'{left_d}/{lim_d}'}</span>
+            </div>
+        </div>
+        <div class="progress-bar-container">
+            <div class="progress-bar-fill" style="width: {progress_value*100}%; background-color: {'#4caf50' if progress_value > 0.5 else ('#ffc107' if progress_value > 0.25 else '#f44336')};">
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Popover for more details
+        with st.popover(f"Details: {m_key}", use_container_width=True, key=f"popover_{m_key}"):
+            st.markdown(f"**{MODEL_DESCRIPTIONS.get(m_key, 'No description available.')}**")
+            st.markdown(f"**Model ID:** `{MODEL_MAP.get(m_key, 'N/A')}`")
+            st.markdown(f"**Max Output Tokens:** {MAX_TOKENS.get(m_key, 'N/A'):,}")
+            _, left_w, left_m = remaining(m_key)
+            _, lim_w, lim_m = PLAN[m_key]
+            st.caption(f"Daily: {left_d}/{lim_d} | Weekly: {left_w}/{lim_w} | Monthly: {left_m}/{lim_m}")
+
+    st.markdown("---")
+    
+    if current_session_is_truly_blank and not st.session_state.get("new_chat_button_top_clicked_once", False):
+         st.caption("Current chat is empty. Add a message or switch.")
 
     st.subheader("Chats")
     sorted_sids = sorted(sessions.keys(), key=lambda s: int(s), reverse=True)
     for sid_key in sorted_sids:
         title = sessions[sid_key].get("title", "Untitled")
-        display_title = title[:28] + ("…" if len(title) > 28 else "")
+        display_title_text = title[:28] + ("…" if len(title) > 28 else "")
+        
+        button_label = display_title_text
         if st.session_state.sid == sid_key:
-            # Wrap active title in a span with a class for CSS targeting (optional, :has is better)
-            # display_title_html = f"<span class='active-chat-item'>🔹 {display_title}</span>"
-            # For simplicity with current CSS using :has or just text content:
-            display_title = f"🔹 {display_title}"
+            # Using a simple text prefix for active state for broader CSS compatibility with :has
+            button_label = f"🔹 {display_title_text}" 
+            # The CSS targets this with: button:has(span:contains("🔹"))
 
-        if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True): # unsafe_allow_html=(st.session_state.sid == sid_key)
+        if st.button(button_label, key=f"session_button_{sid_key}", use_container_width=True):
             if st.session_state.sid != sid_key:
                 st.session_state.sid = sid_key
                 if _delete_unused_blank_sessions(keep_sid=sid_key): _save(SESS_FILE, sessions)
                 st.rerun()
-    st.divider()
+    st.markdown("---")
 
-    st.subheader("Model-Routing Map")
-    st.caption(f"Router engine: {ROUTER_MODEL_ID}")
-    with st.expander("Letters → Models", expanded=False):
-        for k_model in sorted(MODEL_MAP.keys()):
-            st.markdown(f"**{k_model}**: {MODEL_DESCRIPTIONS[k_model]} (max_output={MAX_TOKENS[k_model]:,})")
-    st.divider()
-
+    st.caption(f"Routing via: {ROUTER_MODEL_ID.split('/')[-1]}")
+    
     tot, used, rem = (st.session_state.credits.get(k) for k in ("total","used","remaining"))
-    with st.expander("Account stats (credits)", expanded=False):
-        if st.button("Refresh Credits", key="refresh_credits_button"):
+    with st.expander("Account Credits", expanded=False):
+        if st.button("Refresh Credits", key="refresh_credits_button", use_container_width=True):
             st.session_state.credits = dict(zip(("total","used","remaining"), get_credits()))
             st.session_state.credits_ts = time.time(); st.rerun()
         if tot is None: st.warning("Could not fetch credits.")
@@ -468,7 +531,7 @@ with st.sidebar:
 
 # ────────────────────────── Main Chat Panel ─────────────────────
 current_sid = st.session_state.sid
-if current_sid not in sessions: # Should be caught by startup logic, but as a safeguard
+if current_sid not in sessions: 
     st.error("Chat session error. Creating new."); current_sid = _new_sid(); st.session_state.sid = current_sid
     _save(SESS_FILE, sessions); st.rerun()
 
@@ -483,33 +546,52 @@ if is_new_empty_chat:
     </div>""", unsafe_allow_html=True)
 else:
     for msg_idx, msg in enumerate(chat_history):
-        role = msg["role"]; avatar = "👤"
+        role = msg["role"]; avatar = "👤" # Default to user
         if role == "assistant":
             model_key = msg.get("model")
             avatar = FALLBACK_MODEL_EMOJI if model_key == FALLBACK_MODEL_KEY else EMOJI.get(model_key, EMOJI.get("F", "🤖"))
         with st.chat_message(role, avatar=avatar): st.markdown(msg["content"])
 
 if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
+    if current_session_is_truly_blank: # If it's the first message in a "New chat"
+        st.session_state.new_chat_button_top_clicked_once = True # Suppress "Current chat is empty" caption
+
     chat_history.append({"role":"user","content":prompt})
-    if not is_new_empty_chat: # Display user message immediately only if chat wasn't empty
+    
+    # Display user message immediately if chat wasn't completely empty before this message
+    # Or if it was empty, it will be shown on the rerun after assistant responds
+    if not is_new_empty_chat: 
         with st.chat_message("user", avatar="👤"): st.markdown(prompt)
 
-    allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0]
+    # Determine model for response
+    allowed_standard_models = [k for k in MODEL_MAP if remaining(k)[0] > 0] # Check daily quota
     chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI
     use_fallback = not allowed_standard_models
 
     if not use_fallback:
-        chosen_model_key = allowed_standard_models[0] if len(allowed_standard_models) == 1 else route_choice(prompt, allowed_standard_models)
+        chosen_model_key = route_choice(prompt, allowed_standard_models) # No need for len check, route_choice handles it
         logging.info(f"Chosen model key: '{chosen_model_key}' (Fallback={use_fallback})")
-        model_id_to_use = MODEL_MAP[chosen_model_key]
-        max_tokens_api = MAX_TOKENS[chosen_model_key]
-        avatar_resp = EMOJI[chosen_model_key]
-    else:
-        st.info(f"{FALLBACK_MODEL_EMOJI} Standard quotas used. Using fallback: {FALLBACK_MODEL_ID}")
-        logging.info(f"All standard quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
+        if chosen_model_key in MODEL_MAP: # Ensure router returned a valid key
+            model_id_to_use = MODEL_MAP[chosen_model_key]
+            max_tokens_api = MAX_TOKENS[chosen_model_key]
+            avatar_resp = EMOJI[chosen_model_key]
+        else: # Router failed or returned invalid key, force fallback
+            logging.warning(f"Router returned invalid key '{chosen_model_key}'. Forcing fallback.")
+            use_fallback = True 
+            # chosen_model_key, model_id_to_use, etc. remain as fallback values
     
+    if use_fallback and chosen_model_key != FALLBACK_MODEL_KEY: # This means standard models were allowed, but router failed or picked one that became unavailable
+        st.info(f"{FALLBACK_MODEL_EMOJI} Could not use routed choice. Using fallback: {FALLBACK_MODEL_ID.split('/')[-1]}")
+        chosen_model_key = FALLBACK_MODEL_KEY # Ensure it's marked as fallback
+        logging.info(f"Forcing fallback model: {FALLBACK_MODEL_ID}")
+    elif use_fallback: # All standard quotas were used initially
+        st.info(f"{FALLBACK_MODEL_EMOJI} Standard daily quotas used. Using fallback: {FALLBACK_MODEL_ID.split('/')[-1]}")
+        logging.info(f"All standard daily quotas used. Using fallback model: {FALLBACK_MODEL_ID}")
+        
     response_content, api_ok = "", True
-    # Stream display logic adjusted for empty chat state
+    
+    # Streaming logic: always stream, but for new empty chat, the user message and assistant response appear together after full generation.
+    # For existing chats, assistant streams live.
     if not is_new_empty_chat:
         with st.chat_message("assistant", avatar=avatar_resp):
             placeholder = st.empty()
@@ -517,16 +599,18 @@ if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
                 if err_msg: response_content = f"❗ **API Error**: {err_msg}"; placeholder.error(response_content); api_ok=False; break
                 if chunk: response_content += chunk; placeholder.markdown(response_content + "▌")
             if api_ok: placeholder.markdown(response_content)
-    else: # For new empty chats, generate response but don't stream live, will show on rerun
+    else: # For new empty chats, generate response but don't stream live to UI, will show on full rerun
         for chunk, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
             if err_msg: response_content = f"❗ **API Error**: {err_msg}"; api_ok=False; break
             if chunk: response_content += chunk
             
-    chat_history.append({"role":"assistant","content":response_content,"model": chosen_model_key})
-    if api_ok and not use_fallback: record_use(chosen_model_key)
-    if sessions[current_sid]["title"] == "New chat" and len(chat_history) >=2 : # Auto-title after first exchange
+    chat_history.append({"role":"assistant","content":response_content,"model": chosen_model_key}) # Store chosen_model_key, not FALLBACK_MODEL_KEY directly if it was a forced fallback
+    if api_ok and not use_fallback and chosen_model_key != FALLBACK_MODEL_KEY: # Only record use for non-fallback standard models
+        record_use(chosen_model_key)
+    
+    if sessions[current_sid]["title"] == "New chat" and len(chat_history) >=2 : 
         sessions[current_sid]["title"] = _autoname(prompt)
-        _delete_unused_blank_sessions(keep_sid=current_sid) # Clean up other potential blanks
+        _delete_unused_blank_sessions(keep_sid=current_sid) 
 
     _save(SESS_FILE, sessions)
     st.rerun()
