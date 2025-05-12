@@ -490,9 +490,12 @@ def streamed(model: str, messages: list, max_tokens_out: int):
         logging.exception(f"Unexpected error during streamed API call: {e}") # Use logging.exception to include traceback
         yield None, f"An unexpected error occurred: {e}"
 
-# ------------------------- Model Routing (REVISED) -----------------------
+# --- Imports and Config sections remain the same ---
+# ... (Keep previous script sections for Imports, Config, Helpers, Quota, Session, Logging, API Calls, Credits, UI) ...
+
+# ------------------------- Model Routing (REVISED AGAIN FOR SENSITIVITY) -----------------------
 def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
-    # Determine fallback choice (logic unchanged, but now F is cheapest)
+    # Determine fallback choice (logic unchanged)
     if "F" in allowed: fallback_choice_letter = "F"
     elif allowed: fallback_choice_letter = allowed[0]
     elif "F" in MODEL_MAP: fallback_choice_letter = "F"
@@ -513,8 +516,7 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
         return allowed[0]
 
     # Prepare history context (Unchanged)
-    history_segments = []
-    current_chars = 0
+    history_segments = []; current_chars = 0
     relevant_history_for_router = chat_history[:-1] if chat_history else []
     for msg in reversed(relevant_history_for_router):
         role = msg.get("role", "assistant").capitalize(); content = msg.get("content", "")
@@ -524,60 +526,78 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
         history_segments.append(segment); current_chars += len(segment)
     history_context_str = "".join(reversed(history_segments)).strip() or "No prior conversation history."
 
-    # --- Build the REVISED system prompt ---
+    # --- Build the REVISED V3 system prompt ---
     system_prompt_parts = [
         "You are an expert AI model routing assistant. Your task is to select the *single most appropriate and cost-effective* model letter from the 'Available Models' list to handle the 'Latest User Query'.",
         "Core Principles:",
-        "1. **Assess Adequacy FIRST:** Before considering cost, determine the *minimum capability required* for the query. Is it simple, moderate, complex, creative, sensitive? Does it require high accuracy, deep reasoning, or specific stylistic output?",
-        "2. **Maximize Cost-Effectiveness SECOND:** Once adequacy is assessed, choose the ***absolute cheapest*** model from the 'Available Models' list that meets the minimum capability requirement. Cost Order (cheapest to most expensive): **F < D < B < A < E < C**.",
-        "3. **Prioritize Safety and Sensitivity:** For queries involving mental health, grief, safety concerns, or other sensitive topics, *err on the side of caution* and choose a more capable/nuanced model (likely B, A, or E minimum) even if a cheaper one *might* seem barely adequate. Avoid 'F' and 'D' for sensitive topics.", # Added safety emphasis
-        "4. **Consider History:** Use 'Recent Conversation History' for context, but base the decision primarily on the *Latest User Query* requirements."
+        "1. **Assess Adequacy & Sensitivity FIRST:** Determine the capability required. Crucially, identify if the query involves sensitive topics, *especially self-harm, suicide, crisis, or immediate danger*. This takes precedence over cost.",
+        "2. **Prioritize Safety & Crisis Handling:**", # ELEVATED PRIORITY
+        "   - **CRITICAL:** If the 'Latest User Query' mentions or strongly implies self-harm, suicide, immediate danger, or a severe mental health crisis, **YOU MUST CHOOSE a highly capable, nuanced, and safe model.**",
+        "   - **Mandatory Selection for Crisis:** For such critical queries, prioritize available models in this order: **E > A > C**. If none of E, A, or C are available, select B ONLY as a last resort before fallback.",
+        "   - **Avoid F, D, and sometimes B:** Models F, D, and often B are **NOT suitable** for handling severe crisis situations.",
+        "3. **Maximize Cost-Effectiveness (Conditional):** If the query is *NOT* a critical safety/crisis situation, choose the ***absolute cheapest*** available model that meets the *non-crisis* capability requirement. General Cost Order: **F < D < B < A < E < C**.",
+        "4. **Consider History:** Use 'Recent Conversation History' for context."
     ]
-    system_prompt_parts.append("\nAvailable Models (Cost Order: F < D < B < A < E < C):")
-    # Use the updated ROUTER_MODEL_GUIDANCE which includes negative constraints for F
+    system_prompt_parts.append("\nAvailable Models (General Cost Order: F < D < B < A < E < C - overridden by crisis protocol):")
+
+    # --- REVISED GUIDANCE to reflect new sensitivity protocol ---
+    ROUTER_MODEL_GUIDANCE_SENSITIVE = {
+        "A": "(Model A: High Capability [Cost Rank 4/6]) Use for complex tasks. **Suitable for sensitive/crisis topics if E is unavailable.** Cheaper than E, C.",
+        "B": "(Model B: Mid-Tier [Cost Rank 3/6]) Use for general moderate tasks. Suitable for *mild-to-moderate* sensitivity (e.g., general sadness, basic advice). **Generally AVOID for severe crisis/self-harm unless E, A, C are all unavailable.** Cheaper than A, E, C.",
+        "C": "(Model C: Polished, HIGHEST COST [Cost Rank 6/6]) Avoid unless extreme polish is essential AND cheaper options inadequate. **Can be a fallback for crisis if E and A are unavailable.**",
+        "D": "(Model D: Factual/Technical [Cost Rank 2/6]) Use for factual/code tasks if F is too basic. **NOT suitable for sensitive topics.** Slow.",
+        "E": "(Model E: Novel & Nuanced, High Cost [Cost Rank 5/6]) Use for unique creative tasks OR **handling serious sensitive topics/crisis situations requiring nuance and safety.** **Preferred choice for crisis if available.** Cheaper than C.",
+        "F": "(Model F: CHEAPEST [Cost Rank 1/6]) Use ONLY for simple, low-stakes, non-sensitive tasks. ***DO NOT USE 'F' IF*** query involves: complexity, sensitivity (especially crisis/safety), math, deep analysis, high accuracy needs."
+    }
     for k_model_key in allowed:
-        description = ROUTER_MODEL_GUIDANCE.get(k_model_key, f"(Model {k_model_key} - Description not found).")
+        description = ROUTER_MODEL_GUIDANCE_SENSITIVE.get(k_model_key, f"(Model {k_model_key} - Description not found).")
         system_prompt_parts.append(f"- {k_model_key}: {description}")
 
-    # REVISED Specific Selection Guidance emphasizing adequacy *before* cost saving
+    # REVISED Decision Process incorporating the crisis protocol
     system_prompt_parts.append("\nDecision Process for 'Latest User Query':")
-    system_prompt_parts.append("1. **Analyze Query:** Understand complexity, intent, required style, sensitivity.")
-    system_prompt_parts.append("2. **Is 'F' sufficient?** (Available: {}). Check F's 'DO NOT USE' constraints in its description above. If the query is simple AND avoids those constraints, choose 'F'. ".format("Yes" if "F" in allowed else "No"))
-    system_prompt_parts.append("3. **If not 'F', is 'D' sufficient?** (Available: {}). Suitable for technical/factual tasks if 'F' is too basic. Check sensitivity.".format("Yes" if "D" in allowed else "No"))
-    system_prompt_parts.append("4. **If not 'D', is 'B' sufficient?** (Available: {}). Good for general moderate tasks, standard creativity, sensitive topics where F/D are inappropriate.".format("Yes" if "B" in allowed else "No"))
-    system_prompt_parts.append("5. **If not 'B', is 'A' sufficient?** (Available: {}). Needed for higher complexity/reasoning/generation than 'B'.".format("Yes" if "A" in allowed else "No"))
-    system_prompt_parts.append("6. **If not 'A', is 'E' sufficient?** (Available: {}). Needed for specific *novel/unique* creative style beyond 'A', or sensitive topics needing high nuance.".format("Yes" if "E" in allowed else "No"))
-    system_prompt_parts.append("7. **If not 'E', consider 'C'?** (Available: {}). ***Extreme last resort*** only if *peak* polish/empathy is explicitly required and worth the highest cost.".format("Yes" if "C" in allowed else "No"))
-    system_prompt_parts.append("8. **Select the *first* sufficient model encountered in the F -> D -> B -> A -> E -> C evaluation order that is also in the 'Available Models' list.**")
+    system_prompt_parts.append("1. **CRISIS CHECK:** Does the query mention/imply self-harm, suicide, immediate danger, or severe mental health crisis? ")
+    system_prompt_parts.append("   - **IF YES (CRISIS):**")
+    system_prompt_parts.append("     - Is 'E' available? If yes, CHOOSE 'E'.")
+    system_prompt_parts.append("     - If 'E' not available, is 'A' available? If yes, CHOOSE 'A'.")
+    system_prompt_parts.append("     - If 'E' and 'A' not available, is 'C' available? If yes, CHOOSE 'C'.")
+    system_prompt_parts.append("     - If 'E', 'A', 'C' not available, is 'B' available? If yes, CHOOSE 'B' (last resort).")
+    system_prompt_parts.append("     - If none of the above, routing fails (system will handle fallback). STOP HERE if Crisis Protocol used.")
+    system_prompt_parts.append("   - **IF NO (NOT A CRISIS):** Proceed to step 2 (Standard Routing).")
+    system_prompt_parts.append("2. **Standard Routing (Non-Crisis):**")
+    system_prompt_parts.append("   - Is 'F' sufficient (simple, non-sensitive, low-complexity)? (Available: {}) If yes, CHOOSE 'F'.".format("Yes" if "F" in allowed else "No"))
+    system_prompt_parts.append("   - If not 'F', is 'D' sufficient (technical/factual)? (Available: {}) Avoid if sensitive. If yes, CHOOSE 'D'.".format("Yes" if "D" in allowed else "No"))
+    system_prompt_parts.append("   - If not 'D', is 'B' sufficient (general moderate tasks, mild sensitivity)? (Available: {}) If yes, CHOOSE 'B'.".format("Yes" if "B" in allowed else "No"))
+    system_prompt_parts.append("   - If not 'B', is 'A' sufficient (complex reasoning/generation)? (Available: {}) If yes, CHOOSE 'A'.".format("Yes" if "A" in allowed else "No"))
+    system_prompt_parts.append("   - If not 'A', is 'E' sufficient (novel creative, nuanced non-crisis sensitive)? (Available: {}) If yes, CHOOSE 'E'.".format("Yes" if "E" in allowed else "No"))
+    system_prompt_parts.append("   - If not 'E', consider 'C' (peak polish, non-crisis)? (Available: {}) Very high cost. If yes, CHOOSE 'C'.".format("Yes" if "C" in allowed else "No"))
+    system_prompt_parts.append("   - Select the *first* sufficient model found in the F->D->B->A->E->C order for standard routing.")
 
     system_prompt_parts.append("\nRecent Conversation History (Context):")
     system_prompt_parts.append(history_context_str)
-    system_prompt_parts.append(f"\nAvailable Model Letters: {', '.join(sorted(allowed))}") # Explicitly list allowed letters
-    # User message will be appended by the API call structure
+    system_prompt_parts.append(f"\nAvailable Model Letters: {', '.join(sorted(allowed))}")
 
-    system_prompt_parts.append("\nINSTRUCTION: Based *strictly* on the adequacy assessment and cost-optimization process described (F->D->B->A->E->C), analyze the 'Latest User Query' (provided in the user role message). Respond with ONLY the single capital letter of the *cheapest adequate* model available. NO EXPLANATION.")
+    system_prompt_parts.append("\nINSTRUCTION: Analyze the 'Latest User Query' (provided in the user role message) using the Crisis Check and Standard Routing process above. Respond with ONLY the single capital letter of your chosen model. NO EXPLANATION.")
     final_system_message = "\n".join(system_prompt_parts)
-    logging.debug(f"Router System Prompt:\n{final_system_message}") # Log the prompt for debugging
+    logging.debug(f"Router System Prompt V3:\n{final_system_message}")
 
     router_messages = [{"role": "system", "content": final_system_message}, {"role": "user", "content": user_msg}]
-    # Increased temperature slightly
+    # Keep temperature slightly elevated
     payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10, "temperature": 0.2}
     logging.debug(f"Router Payload: {json.dumps(payload_r, indent=2)}")
 
     try:
         r = api_post(payload_r)
         choice_data = r.json()
-        logging.debug(f"Router Full Response JSON: {json.dumps(choice_data, indent=2)}") # Log full response
+        logging.debug(f"Router Full Response JSON: {json.dumps(choice_data, indent=2)}")
         raw_text_response = choice_data.get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
         logging.info(f"Router raw text response: '{raw_text_response}' for query: '{user_msg[:100]}...'")
 
         chosen_model_letter = None
-        # Check the response *only* for allowed characters
         for char_in_response in raw_text_response:
             if char_in_response in allowed:
                 chosen_model_letter = char_in_response
                 logging.info(f"Router selected model '{chosen_model_letter}' (from response '{raw_text_response}', allowed: {allowed})")
-                break # Found first allowed character
+                break
 
         if chosen_model_letter:
             return chosen_model_letter
@@ -606,6 +626,18 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
     else:
         logging.warning(f"Fallback choice '{fallback_choice_letter}' also unavailable. Using free fallback: {FALLBACK_MODEL_KEY}.")
         return FALLBACK_MODEL_KEY
+
+
+# --- Full Script ---
+# Make sure the rest of the script (API Key Init, Main App Rendering, etc.) uses this updated route_choice function.
+# The structure provided in the previous message should be correct, just replace the route_choice function definition.
+# Remember to include the logging configuration to set the level to DEBUG if needed for testing.
+
+# ... (Paste the rest of the script from the previous complete version here) ...
+# --- API Key Init ---
+# --- Main Application Rendering ---
+# (Ensure the main block calls the updated route_choice function)
+# ... (rest of the script) ...
 
 # --------------------- Credits Endpoint -----------------------
 def get_credits():
