@@ -1373,7 +1373,8 @@ else:
              logging.warning(f"Skipping message at index {msg_idx} for SID {current_sid} due to invalid role/avatar. Role: {role}, Avatar: {avatar_char}")
              continue # Skip invalid message
 
-        with st.chat_message(name=role, avatar=avatar_char, key=f"msg_{current_sid}_{msg_idx}"):
+      
+with st.chat_message(name=role, avatar=avatar_char): # <-- Removed key argument
             # Display the content using markdown
             content_to_display = msg.get("content", "*empty message*")
             if not isinstance(content_to_display, str):
