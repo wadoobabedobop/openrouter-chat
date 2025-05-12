@@ -1350,9 +1350,9 @@ else:
              role="assistant" # Display as assistant for now
              avatar_char = "⚙️"
 
-        with st.chat_message(role, avatar=avatar_char):
-             # Add message index to key to ensure uniqueness if content is identical
-             st.markdown(msg.get("content", "*empty message*"), key=f"msg_{current_sid}_{msg_idx}")
+    # Add message index to key on the container to ensure uniqueness if content is identical
+    with st.chat_message(role, avatar=avatar_char, key=f"msg_{current_sid}_{msg_idx}"): # <-- Moved key here
+         st.markdown(msg.get("content", "*empty message*")) # <-- Removed key here
 
     # --- Chat Input Logic ---
     if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
