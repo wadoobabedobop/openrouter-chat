@@ -553,7 +553,7 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
     system_prompt_parts.append("\nRecent Conversation History (Context):")
     system_prompt_parts.append(history_context_str)
     system_prompt_parts.append(f"\nAvailable Model Letters: {', '.join(sorted(allowed))}") # Explicitly list allowed letters
-    # User message will be appended by the API call structure - Removed explicit label here, it's implicit in the user role message
+    # User message will be appended by the API call structure
 
     system_prompt_parts.append("\nINSTRUCTION: Based *strictly* on the adequacy assessment and cost-optimization process described (F->D->B->A->E->C), analyze the 'Latest User Query' (provided in the user role message). Respond with ONLY the single capital letter of the *cheapest adequate* model available. NO EXPLANATION.")
     final_system_message = "\n".join(system_prompt_parts)
@@ -1337,8 +1337,8 @@ else:
              avatar_char = "⚙️"
 
         with st.chat_message(role, avatar=avatar_char):
-             # Add message index to key to ensure uniqueness if content is identical
-             st.markdown(msg.get("content", "*empty message*"), key=f"msg_{current_sid}_{msg_idx}")
+             # Removed the 'key' argument which caused the TypeError
+             st.markdown(msg.get("content", "*empty message*"))
 
     # --- Chat Input Logic ---
     if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
@@ -1369,7 +1369,7 @@ else:
             for k_map in cost_order_check:
                  if k_map in MODEL_MAP: # Only check models defined in our map
                      available = is_model_available(k_map)
-                     logging.info(f"Model {k_map} ({MODEL_MAP[k_map]}): Available = {available}")
+                     logging.info(f"Model {k_map} ({MODEL_MAP.get(k_map,'?') }): Available = {available}") # Added get default
                      if available:
                           allowed_standard_models.append(k_map)
             logging.info(f"Final allowed models passed to router: {allowed_standard_models}")
