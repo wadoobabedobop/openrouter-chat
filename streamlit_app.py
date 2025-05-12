@@ -546,9 +546,10 @@ def get_credits():
 
 # ------------------------- UI Styling --------------------------
 def load_custom_css():
-    css = f"""
+    css = """
     <style>
-        :root {{
+        :root {
+            /* Core Colors */
             --app-bg-color: #F8F9FA; /* Lighter, softer background */
             --app-secondary-bg-color: #FFFFFF; /* White for secondary elements like sidebar, cards */
             --app-text-color: #212529; /* Darker grey for better contrast */
@@ -574,46 +575,46 @@ def load_custom_css():
             --shadow-md: 0 .5rem 1rem rgba(0,0,0,.15);
 
             --app-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-        }}
+        }
 
-        body, .stApp {{
+        body, .stApp {
             font-family: var(--app-font) !important;
             background-color: var(--app-bg-color) !important;
             color: var(--app-text-color) !important;
-        }}
-        .main .block-container {{
+        }
+        .main .block-container {
             background-color: var(--app-bg-color);
             padding-top: var(--spacing-md);
             padding-bottom: var(--spacing-lg);
-        }}
+        }
 
         /* Sidebar Styling */
-        [data-testid="stSidebar"] {{
+        [data-testid="stSidebar"] {
             background-color: var(--app-secondary-bg-color);
             border-right: 1px solid var(--app-divider-color);
             padding: var(--spacing-md);
-        }}
-        [data-testid="stSidebar"] .stImage > img {{ /* Sidebar Logo */
+        }
+        [data-testid="stSidebar"] .stImage > img { /* Sidebar Logo */
             border-radius: var(--border-radius-md);
             box-shadow: var(--shadow-sm);
             width: 40px !important; height: 40px !important;
             margin-right: var(--spacing-sm);
-        }}
-        [data-testid="stSidebar"] h1 {{ /* App Title in Sidebar */
+        }
+        [data-testid="stSidebar"] h1 { /* App Title in Sidebar */
             font-size: 1.4rem !important;
             color: var(--app-text-color);
             font-weight: 600;
             margin-bottom: 0;
             line-height: 1.2;
             padding-top: 0.15rem; /* Align with logo better */
-        }}
-        .sidebar-title-container {{ /* Custom container for logo and title */
+        }
+        .sidebar-title-container { /* Custom container for logo and title */
             display: flex;
             align-items: center;
             margin-bottom: var(--spacing-md);
-        }}
+        }
 
-        [data-testid="stSidebar"] .stButton > button {{
+        [data-testid="stSidebar"] .stButton > button {
             border-radius: var(--border-radius-md);
             border: 1px solid var(--app-border-color);
             padding: 0.5em 0.8em; font-size: 0.9rem;
@@ -622,12 +623,12 @@ def load_custom_css():
             transition: background-color 0.2s, border-color 0.2s;
             width: 100%; margin-bottom: var(--spacing-sm);
             text-align: left; font-weight: 500;
-        }}
-        [data-testid="stSidebar"] .stButton > button:hover:not(:disabled) {{
+        }
+        [data-testid="stSidebar"] .stButton > button:hover:not(:disabled) {
             border-color: var(--app-primary-color);
             background-color: color-mix(in srgb, var(--app-primary-color) 8%, transparent);
-        }}
-        [data-testid="stSidebar"] .stButton > button:disabled {{ /* Active Chat Button */
+        }
+        [data-testid="stSidebar"] .stButton > button:disabled { /* Active Chat Button */
             opacity: 1.0; cursor: default;
             background-color: color-mix(in srgb, var(--app-primary-color) 15%, transparent) !important;
             border-left: 3px solid var(--app-primary-color) !important;
@@ -635,122 +636,122 @@ def load_custom_css():
             border-right-color: var(--app-border-color) !important;
             border-bottom-color: var(--app-border-color) !important;
             font-weight: 600; color: var(--app-text-color);
-        }}
-        [data-testid="stSidebar"] [data-testid*="new_chat_button_top"] > button {{
+        }
+        [data-testid="stSidebar"] [data-testid*="new_chat_button_top"] > button {
             background-color: var(--app-primary-color); color: white;
             border-color: var(--app-primary-color); font-weight: 600;
-        }}
-        [data-testid="stSidebar"] [data-testid*="new_chat_button_top"] > button:hover {{
+        }
+        [data-testid="stSidebar"] [data-testid*="new_chat_button_top"] > button:hover {
             background-color: var(--app-primary-hover-color);
             border-color: var(--app-primary-hover-color);
-        }}
-        [data-testid="stSidebar"] [data-testid*="new_chat_button_top"] > button:disabled {{
+        }
+        [data-testid="stSidebar"] [data-testid*="new_chat_button_top"] > button:disabled {
             border-left-width: 1px !important; /* Reset active style for disabled new chat */
-        }}
+        }
 
-        [data-testid="stSidebar"] h3, [data-testid="stSidebar"] .stSubheader {{ /* Sidebar Section Headers */
+        [data-testid="stSidebar"] h3, [data-testid="stSidebar"] .stSubheader { /* Sidebar Section Headers */
             font-size: 0.75rem !important; text-transform: uppercase; font-weight: 600;
             color: var(--app-text-secondary-color);
             margin-top: var(--spacing-md); margin-bottom: var(--spacing-sm);
             letter-spacing: 0.03em;
-        }}
-        [data-testid="stSidebar"] [data-testid="stExpander"] {{
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] {
             border: 1px solid var(--app-divider-color);
             border-radius: var(--border-radius-md);
             background-color: var(--app-secondary-bg-color); /* Match sidebar bg */
             margin-bottom: var(--spacing-sm);
-        }}
-        [data-testid="stSidebar"] [data-testid="stExpander"] summary {{
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary {
             padding: 0.5rem var(--spacing-sm) !important;
             font-size: 0.8rem !important; font-weight: 500 !important;
             color: var(--app-text-color) !important;
             border-bottom: 1px solid var(--app-divider-color);
             border-top-left-radius: var(--border-radius-md); border-top-right-radius: var(--border-radius-md);
-        }}
-        [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
             background-color: color-mix(in srgb, var(--app-text-color) 4%, transparent);
-        }}
-        [data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] {{
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] {
             padding: var(--spacing-sm) !important;
              background-color: color-mix(in srgb, var(--app-bg-color) 50%, var(--app-secondary-bg-color) 50%); /* Slightly different from expander summary */
             border-bottom-left-radius: var(--border-radius-md); border-bottom-right-radius: var(--border-radius-md);
-        }}
-        [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stExpanderDetails"] {{
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stExpanderDetails"] {
             padding: 0.4rem var(--spacing-xs) 0.1rem var(--spacing-xs) !important; /* More compact */
-        }}
-        [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stHorizontalBlock"] {{
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stHorizontalBlock"] {
             gap: 0.15rem !important; /* Tighter gap for quota items */
-        }}
+        }
 
 
         /* Compact Quota Item Styling */
-        .compact-quota-item {{
+        .compact-quota-item {
             display: flex; flex-direction: column; align-items: center;
             text-align: center; padding: var(--spacing-xs);
             background-color: color-mix(in srgb, var(--app-text-color) 2%, transparent);
             border-radius: var(--border-radius-sm);
             min-width: 30px; /* Ensure a minimum width */
-        }}
-        .cq-info {{ font-size: 0.65rem; margin-bottom: 2px; line-height: 1; white-space: nowrap; color: var(--app-text-color); }}
-        .cq-bar-track {{
+        }
+        .cq-info { font-size: 0.65rem; margin-bottom: 2px; line-height: 1; white-space: nowrap; color: var(--app-text-color); }
+        .cq-bar-track {
             width: 100%; height: 6px;
             background-color: color-mix(in srgb, var(--app-text-color) 10%, transparent);
             border: 1px solid var(--app-divider-color);
             border-radius: 3px; overflow: hidden; margin-bottom: 3px;
-        }}
-        .cq-bar-fill {{ height: 100%; border-radius: 3px; transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out; }}
-        .cq-value {{ font-size: 0.65rem; font-weight: 600; line-height: 1; }}
+        }
+        .cq-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out; }
+        .cq-value { font-size: 0.65rem; font-weight: 600; line-height: 1; }
 
         /* Settings Panel in Sidebar */
-        .settings-panel {{
+        .settings-panel {
             border: 1px solid var(--app-divider-color);
             border-radius: var(--border-radius-md); padding: var(--spacing-sm);
             margin-top: var(--spacing-xs); margin-bottom: var(--spacing-md);
             background-color: var(--app-bg-color); /* Slightly different from sidebar bg */
-        }}
-        .settings-panel .stTextInput input {{
+        }
+        .settings-panel .stTextInput input {
             border-color: var(--app-border-color) !important;
             background-color: var(--app-secondary-bg-color) !important;
             color: var(--app-text-color) !important;
             font-size: 0.85rem;
-        }}
-        .settings-panel .stSubheader {{
+        }
+        .settings-panel .stSubheader {
              color: var(--app-text-color) !important;
              font-weight: 600 !important; font-size: 0.9rem !important;
              margin-bottom: var(--spacing-xs) !important;
-        }}
-        .settings-panel hr {{ border-top: 1px solid var(--app-divider-color); margin: var(--spacing-sm) 0; }}
-        .detailed-quota-modelname {{
+        }
+        .settings-panel hr { border-top: 1px solid var(--app-divider-color); margin: var(--spacing-sm) 0; }
+        .detailed-quota-modelname {
             font-weight: 600; font-size: 0.95em;
             margin-bottom: 0.2rem; display:block;
             color: var(--app-primary-color);
-        }}
-        .detailed-quota-block {{ font-size: 0.8rem; line-height: 1.5; }}
-        .detailed-quota-block ul {{ list-style-type: none; padding-left: 0; margin-bottom: 0.3rem;}}
-        .detailed-quota-block li {{ margin-bottom: 0.1rem; }}
+        }
+        .detailed-quota-block { font-size: 0.8rem; line-height: 1.5; }
+        .detailed-quota-block ul { list-style-type: none; padding-left: 0; margin-bottom: 0.3rem;}
+        .detailed-quota-block li { margin-bottom: 0.1rem; }
 
         /* Chat Input Area */
-        [data-testid="stChatInputContainer"] {{
+        [data-testid="stChatInputContainer"] {
             background-color: var(--app-secondary-bg-color);
             border-top: 1px solid var(--app-divider-color);
             padding: var(--spacing-sm) var(--spacing-md);
             box-shadow: 0 -2px 5px rgba(0,0,0,0.03);
-        }}
-        [data-testid="stChatInput"] textarea {{
+        }
+        [data-testid="stChatInput"] textarea {
             border: 1px solid var(--app-border-color) !important;
             border-radius: var(--border-radius-md) !important;
             background-color: var(--app-secondary-bg-color) !important; /* Match container */
             color: var(--app-text-color) !important;
             box-shadow: var(--shadow-sm) inset;
-        }}
-        [data-testid="stChatInput"] textarea:focus {{
+        }
+        [data-testid="stChatInput"] textarea:focus {
             border-color: var(--app-primary-color) !important;
             box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--app-primary-color) 25%, transparent) !important;
-        }}
+        }
 
 
         /* Chat Messages */
-        [data-testid="stChatMessage"] {{
+        [data-testid="stChatMessage"] {
             border-radius: var(--border-radius-lg);
             padding: 0.8rem 1rem;
             margin-bottom: var(--spacing-sm);
@@ -758,49 +759,50 @@ def load_custom_css():
             border: 1px solid transparent;
             max-width: 80%; /* Slightly reduce max width */
             line-height: 1.5;
-        }}
-        [data-testid="stChatMessage"] p {{ margin-bottom: 0.5em; }} /* Spacing between paragraphs in a message */
-        [data-testid="stChatMessage"] p:last-child {{ margin-bottom: 0; }}
+        }
+        [data-testid="stChatMessage"] p { margin-bottom: 0.5em; } /* Spacing between paragraphs in a message */
+        [data-testid="stChatMessage"] p:last-child { margin-bottom: 0; }
 
-        [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {{
+        [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {
             background-color: var(--app-primary-color);
             color: white;
             margin-left: auto;
             border-bottom-right-radius: var(--border-radius-sm); /* Pointy corner */
-        }}
-        [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {{
+        }
+        [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {
             background-color: var(--app-secondary-bg-color);
             color: var(--app-text-color);
             margin-right: auto;
             border: 1px solid var(--app-divider-color);
             border-bottom-left-radius: var(--border-radius-sm); /* Pointy corner */
-        }}
+        }
         /* Ensure avatars are vertically centered if they are taller than one line of text */
         [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] {
-            padding-top: 0.1rem; padding-bottom: 0.1rem; /* Adjust if avatars misalign */
+            padding-top: 0.1rem; 
+            padding-bottom: 0.1rem; /* Adjust if avatars misalign */
         }
 
 
-        .sidebar-divider {{
+        .sidebar-divider {
              margin: var(--spacing-md) 0; /* More prominent spacing for dividers */
              border: 0; border-top: 1px solid var(--app-divider-color);
-        }}
+        }
         /* Utility for hiding Streamlit's default "Fork on GitHub" ribbon if desired */
-        /* #GithubIcon {{ display: none; }} */
+        /* #GithubIcon { display: none; } */
         
         /* Improve general button styling if st.button is used in main area */
-        .main .stButton > button:not([data-testid*="new_chat_button_top"]):not([data-testid*="toggle_settings_button_sidebar"]):not([data-testid*="session_button_"]) {{
+        .main .stButton > button:not([data-testid*="new_chat_button_top"]):not([data-testid*="toggle_settings_button_sidebar"]):not([data-testid*="session_button_"]) {
             border-radius: var(--border-radius-md);
             border: 1px solid var(--app-primary-color);
             background-color: var(--app-primary-color);
             color: white;
             padding: 0.5em 1em;
             font-weight: 500;
-        }}
-        .main .stButton > button:not([data-testid*="new_chat_button_top"]):not([data-testid*="toggle_settings_button_sidebar"]):not([data-testid*="session_button_"]):hover {{
+        }
+        .main .stButton > button:not([data-testid*="new_chat_button_top"]):not([data-testid*="toggle_settings_button_sidebar"]):not([data-testid*="session_button_"]):hover {
             background-color: var(--app-primary-hover-color);
             border-color: var(--app-primary-hover-color);
-        }}
+        }
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
