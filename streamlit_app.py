@@ -1336,23 +1336,53 @@ else:
     chat_history = sessions[current_sid]["messages"]
 
     # --- Display Existing Chat Messages ---
-    for msg_idx, msg in enumerate(chat_history): # Use enumerate for potential keys
-        role = msg.get("role", "assistant")
+    # Ensure chat_history is a list (it should be based on earlier code)
+    if not isinstance(chat_history, list):
+        logging.error(f"CRITICAL: chat_history for SID {current_sid} is not a list! Type: {type(chat_history)}. Resetting to empty list.")
+        chat_history = []
+        sessions[current_sid]["messages"] = chat_history # Fix it in the session data
+        _save(SESS_FILE, sessions) # Save the fix immediately
+
+    for msg_idx, msg in enumerate(chat_history):
+        # Ensure msg is a dictionary before proceeding
+        if not isinstance(msg, dict):
+            logging.warning(f"Skipping invalid message item at index {msg_idx} for SID {current_sid}: Not a dictionary. Item: {msg}")
+            continue # Skip to the next message
+
+        # Determine role and avatar for the message
+        role = msg.get("role", "assistant") # Default to assistant if role missing
         avatar_char = None
         if role == "user":
             avatar_char = "👤"
         elif role == "assistant":
             m_key = msg.get("model") # Get the model key used for this message
-            if m_key == FALLBACK_MODEL_KEY: avatar_char = FALLBACK_MODEL_EMOJI
-            elif m_key in EMOJI: avatar_char = EMOJI[m_key]
-            else: avatar_char = "🤖" # Default assistant avatar if model unknown
+            if m_key == FALLBACK_MODEL_KEY:
+                avatar_char = FALLBACK_MODEL_EMOJI
+            elif m_key in EMOJI:
+                # Use .get for safety in case EMOJI map changes or key is missing
+                avatar_char = EMOJI.get(m_key, "🤖")
+            else:
+                avatar_char = "🤖" # Default assistant avatar if model unknown
         else: # Handle potential system messages or other roles if added later
-             role="assistant" # Display as assistant for now
-             avatar_char = "⚙️"
+             role="assistant" # Display non-user/assistant as assistant for now
+             avatar_char = "⚙️" # System/other avatar
 
-    # Add message index to key on the container to ensure uniqueness if content is identical
-    with st.chat_message(role, avatar=avatar_char, key=f"msg_{current_sid}_{msg_idx}"): # <-- Moved key here
-         st.markdown(msg.get("content", "*empty message*")) # <-- Removed key here
+        # Add message index to key on the container to ensure uniqueness if content is identical
+        # Ensure role and avatar_char are valid before calling chat_message
+        if not isinstance(role, str) or not isinstance(avatar_char, (str, type(None))):
+             logging.warning(f"Skipping message at index {msg_idx} for SID {current_sid} due to invalid role/avatar. Role: {role}, Avatar: {avatar_char}")
+             continue # Skip invalid message
+
+        with st.chat_message(name=role, avatar=avatar_char, key=f"msg_{current_sid}_{msg_idx}"):
+            # Display the content using markdown
+            content_to_display = msg.get("content", "*empty message*")
+            if not isinstance(content_to_display, str):
+                 logging.warning(f"Message content at index {msg_idx} for SID {current_sid} is not a string. Converting. Type: {type(content_to_display)}")
+                 content_to_display = str(content_to_display) # Attempt conversion
+            st.markdown(content_to_display)
+
+    # --- Chat Input Logic ---
+    # (The rest of your chat input logic starts here)
 
     # --- Chat Input Logic ---
     if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
