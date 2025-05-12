@@ -362,8 +362,6 @@ def _delete_unused_blank_sessions(keep_sid: str = None):
 sessions = _load(SESS_FILE, {})
 
 def _new_sid():
-    # Note: _delete_unused_blank_sessions should ideally be called BEFORE generating a new sid
-    # if the goal is to clean up *before* creating the new one, but it's harmless here too.
     sid = str(int(time.time() * 1000))
     sessions[sid] = {"title": "New chat", "messages": []}
     _delete_unused_blank_sessions(keep_sid=sid) # Clean up *other* blank sessions
@@ -390,12 +388,7 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
         st.session_state.api_key_auth_failed = True
         raise ValueError("OpenRouter API Key is not set or syntactically invalid. Configure in Settings.")
     headers = {"Authorization": f"Bearer {active_api_key}", "Content-Type":  "application/json"}
-
-    # --- DEBUG LOGGING FOR API POST ---
-    # This log is less useful than the st.expander in the main loop
-    # logging.info(f"POST /chat/completions -> model={payload.get('model')}, stream={stream}, max_tokens={payload.get('max_tokens')}")
-    # --- END DEBUG LOGGING ---
-
+    logging.info(f"POST /chat/completions -> model={payload.get('model')}, stream={stream}, max_tokens={payload.get('max_tokens')}")
     try:
         response = requests.post(f"{OPENROUTER_API_BASE}/chat/completions", headers=headers, json=payload, stream=stream, timeout=timeout)
         response.raise_for_status()
@@ -408,8 +401,6 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
         raise
 
 def streamed(model: str, messages: list, max_tokens_out: int):
-    # Note: Debugging the 'messages' passed to streamed is better done
-    # just *before* calling this function in the main loop using st.expander.
     payload = {"model": model, "messages": messages, "stream": True, "max_tokens": max_tokens_out}
     st.session_state.pop("last_stream_usage", None)
 
@@ -433,9 +424,7 @@ def streamed(model: str, messages: list, max_tokens_out: int):
                     logging.error(f"API chunk error: {msg}"); yield None, msg; return
 
                 if "usage" in chunk and chunk["usage"] is not None:
-                    # Capture the last usage chunk received (often the final one)
                     st.session_state.last_stream_usage = chunk["usage"]
-                    # logging.info(f"Captured stream usage chunk: {chunk['usage']}") # This can be noisy, moved final log to main loop
 
                 delta = chunk["choices"][0]["delta"].get("content")
                 if delta is not None: yield delta, None
@@ -467,15 +456,11 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
 
     history_segments = []
     current_chars = 0
-    # Router only needs history *before* the current user message
-    relevant_history_for_router = chat_history[:-1] # Exclude the latest user prompt added just before calling route_choice
+    relevant_history_for_router = chat_history[:-1]
     for msg in reversed(relevant_history_for_router):
         role = msg.get("role", "assistant").capitalize()
         content = msg.get("content", "")
-        # Ensure content is string before checking length
         if not isinstance(content, str): content = str(content)
-
-        # Add role and content, plus newline separators
         segment = f"{role}: {content}\n"
         if current_chars + len(segment) > MAX_HISTORY_CHARS_FOR_ROUTER: break
         history_segments.append(segment)
@@ -512,15 +497,6 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
     router_messages = [{"role": "system", "content": final_system_message}, {"role": "user", "content": user_msg}]
     payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10, "temperature": 0.1}
 
-    # --- START DEBUG SECTION FOR ROUTER PAYLOAD (VERBOSE) ---
-    # This shows the full prompt sent to the router model.
-    # Keep commented out unless you specifically need to debug the router prompt itself.
-    # with st.expander("DEBUG (VERBOSE): Router Model Call Payload", expanded=False):
-    #     st.subheader(f"Payload for ROUTER_MODEL_ID ({ROUTER_MODEL_ID})")
-    #     st.json(payload_r)
-    # --- END DEBUG SECTION FOR ROUTER PAYLOAD ---
-
-
     try:
         r = api_post(payload_r)
         choice_data = r.json()
@@ -528,17 +504,9 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
         logging.info(f"Router raw response: '{raw_text_response}' for query: '{user_msg}' with history context.")
 
         chosen_model_letter = None
-        # Find the first character in the response that is in the allowed list
         for char_in_response in raw_text_response:
             if char_in_response in allowed:
                 chosen_model_letter = char_in_response; break
-        
-        # If no allowed letter was found, check for the fallback explicitly chosen by the router
-        # This part is slightly redundant if FALLBACK_MODEL_KEY is not in allowed,
-        # but good for clarity if the router somehow outputs it.
-        # Given the prompt asks for only A-F, this check is probably not needed.
-        # elif raw_text_response == FALLBACK_MODEL_KEY:
-        #    chosen_model_letter = FALLBACK_MODEL_KEY
 
         if chosen_model_letter:
             logging.info(f"Router selected model: '{chosen_model_letter}'")
@@ -581,225 +549,257 @@ def load_custom_css():
     css = f"""
     <style>
         :root {{
-            /* Core Colors */
-            --app-bg-color: rgb(250, 249, 245);
-            --app-secondary-bg-color: #F0F2F6; /* Streamlit's default light secondary, or try rgb(242, 240, 237) for closer match */
-            --app-text-color: #0F1116;
-            --app-text-secondary-color: #5E6572;
-            --app-primary-color: #0072C6; /* A generic nice blue, change as needed */
-            --app-divider-color: #E0E0E0;
+            --app-bg-color: #F8F9FA; /* Lighter, softer background */
+            --app-secondary-bg-color: #FFFFFF; /* White for secondary elements like sidebar, cards */
+            --app-text-color: #212529; /* Darker grey for better contrast */
+            --app-text-secondary-color: #6C757D; /* Lighter grey for secondary text */
+            --app-primary-color: #007BFF; /* Standard Bootstrap blue */
+            --app-primary-hover-color: #0056b3;
+            --app-divider-color: #DEE2E6; /* Lighter divider */
+            --app-border-color: #CED4DA; /* Softer border for inputs etc. */
+            --app-success-color: #28A745;
+            --app-warning-color: #FFC107;
+            --app-danger-color: #DC3545;
 
-            /* UI Metrics */
-            --border-radius-sm: 4px; --border-radius-md: 8px; --border-radius-lg: 12px;
-            --spacing-sm: 0.5rem; --spacing-md: 1rem; --spacing-lg: 1.5rem;
-            --shadow-light: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
-            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            --border-radius-sm: 0.2rem;
+            --border-radius-md: 0.25rem;
+            --border-radius-lg: 0.3rem;
 
-            /* Font */
-            --app-font: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+            --spacing-xs: 0.25rem;
+            --spacing-sm: 0.5rem;
+            --spacing-md: 1rem;
+            --spacing-lg: 1.5rem;
+
+            --shadow-sm: 0 .125rem .25rem rgba(0,0,0,.075);
+            --shadow-md: 0 .5rem 1rem rgba(0,0,0,.15);
+
+            --app-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
         }}
 
-        body {{
+        body, .stApp {{
             font-family: var(--app-font) !important;
             background-color: var(--app-bg-color) !important;
             color: var(--app-text-color) !important;
         }}
-        .stApp {{ /* Streamlit's main container */
-            background-color: var(--app-bg-color) !important;
-        }}
-         /* Ensure main block-container also gets the background for content area */
         .main .block-container {{
             background-color: var(--app-bg-color);
-            padding-top: 2rem; /* Add some top padding to main content area */
+            padding-top: var(--spacing-md);
+            padding-bottom: var(--spacing-lg);
         }}
 
+        /* Sidebar Styling */
         [data-testid="stSidebar"] {{
             background-color: var(--app-secondary-bg-color);
-            padding: var(--spacing-lg) var(--spacing-md);
             border-right: 1px solid var(--app-divider-color);
+            padding: var(--spacing-md);
         }}
-        [data-testid="stSidebar"] .stImage > img {{
-            border-radius: 50%; box-shadow: var(--shadow-light);
-            width: 48px !important; height: 48px !important; margin-right: var(--spacing-sm);
-        }}
-        [data-testid="stSidebar"] h1 {{ /* App title in sidebar */
-            font-size: 1.5rem !important; color: var(--app-primary-color);
-            font-weight: 600; margin-bottom: 0; padding-top: 0.2rem;
-        }}
-        [data-testid="stSidebar"] .stButton > button {{ /* Regular sidebar buttons */
+        [data-testid="stSidebar"] .stImage > img {{ /* Sidebar Logo */
             border-radius: var(--border-radius-md);
-            border: 1px solid var(--app-divider-color);
-            padding: 0.6em 1em; font-size: 0.9em;
-            background-color: transparent;
+            box-shadow: var(--shadow-sm);
+            width: 40px !important; height: 40px !important;
+            margin-right: var(--spacing-sm);
+        }}
+        [data-testid="stSidebar"] h1 {{ /* App Title in Sidebar */
+            font-size: 1.4rem !important;
+            color: var(--app-text-color);
+            font-weight: 600;
+            margin-bottom: 0;
+            line-height: 1.2;
+            padding-top: 0.15rem; /* Align with logo better */
+        }}
+        .sidebar-title-container {{ /* Custom container for logo and title */
+            display: flex;
+            align-items: center;
+            margin-bottom: var(--spacing-md);
+        }}
+
+        [data-testid="stSidebar"] .stButton > button {{
+            border-radius: var(--border-radius-md);
+            border: 1px solid var(--app-border-color);
+            padding: 0.5em 0.8em; font-size: 0.9rem;
+            background-color: var(--app-secondary-bg-color);
             color: var(--app-text-color);
             transition: background-color 0.2s, border-color 0.2s;
-            width: 100%; margin-bottom: var(--spacing-sm); text-align: left; font-weight: 500;
+            width: 100%; margin-bottom: var(--spacing-sm);
+            text-align: left; font-weight: 500;
         }}
         [data-testid="stSidebar"] .stButton > button:hover:not(:disabled) {{
             border-color: var(--app-primary-color);
-            background-color: color-mix(in srgb, var(--app-primary-color) 10%, transparent);
+            background-color: color-mix(in srgb, var(--app-primary-color) 8%, transparent);
         }}
-        /* Active/Disabled chat session button in sidebar */
-        [data-testid="stSidebar"] .stButton > button:disabled {{
+        [data-testid="stSidebar"] .stButton > button:disabled {{ /* Active Chat Button */
             opacity: 1.0; cursor: default;
-            background-color: color-mix(in srgb, var(--app-primary-color) 20%, transparent) !important;
+            background-color: color-mix(in srgb, var(--app-primary-color) 15%, transparent) !important;
             border-left: 3px solid var(--app-primary-color) !important;
-            border-top-color: var(--app-divider-color) !important;
-            border-right-color: var(--app-divider-color) !important;
-            border-bottom-color: var(--app-divider-color) !important;
+            border-top-color: var(--app-border-color) !important;
+            border-right-color: var(--app-border-color) !important;
+            border-bottom-color: var(--app-border-color) !important;
             font-weight: 600; color: var(--app-text-color);
         }}
-        /* "New Chat" button specific styling */
-        [data-testid="stSidebar"] [data-testid*="new_chat_button_top"] > button {{ /* Use *= for key flexibility */
+        [data-testid="stSidebar"] [data-testid*="new_chat_button_top"] > button {{
             background-color: var(--app-primary-color); color: white;
             border-color: var(--app-primary-color); font-weight: 600;
         }}
         [data-testid="stSidebar"] [data-testid*="new_chat_button_top"] > button:hover {{
-            background-color: color-mix(in srgb, var(--app-primary-color) 85%, black);
-            border-color: color-mix(in srgb, var(--app-primary-color) 85%, black);
+            background-color: var(--app-primary-hover-color);
+            border-color: var(--app-primary-hover-color);
         }}
         [data-testid="stSidebar"] [data-testid*="new_chat_button_top"] > button:disabled {{
-            background-color: var(--app-primary-color) !important; color: white !important;
-            border-color: var(--app-primary-color) !important; opacity: 0.6 !important;
-            cursor: not-allowed !important; border-left: 1px solid var(--app-primary-color) !important;
+            border-left-width: 1px !important; /* Reset active style for disabled new chat */
         }}
 
-        [data-testid="stSidebar"] h3, [data-testid="stSidebar"] .stSubheader {{
-            font-size: 0.8rem !important; text-transform: uppercase; font-weight: 700;
+        [data-testid="stSidebar"] h3, [data-testid="stSidebar"] .stSubheader {{ /* Sidebar Section Headers */
+            font-size: 0.75rem !important; text-transform: uppercase; font-weight: 600;
             color: var(--app-text-secondary-color);
-            margin-top: var(--spacing-lg); margin-bottom: var(--spacing-sm); letter-spacing: 0.05em;
+            margin-top: var(--spacing-md); margin-bottom: var(--spacing-sm);
+            letter-spacing: 0.03em;
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"] {{
             border: 1px solid var(--app-divider-color);
             border-radius: var(--border-radius-md);
-            background-color: transparent;
-            margin-bottom: var(--spacing-md);
+            background-color: var(--app-secondary-bg-color); /* Match sidebar bg */
+            margin-bottom: var(--spacing-sm);
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"] summary {{
-            padding: 0.6rem var(--spacing-md) !important; font-size: 0.85rem !important; font-weight: 600 !important;
-            text-transform: uppercase; color: var(--app-text-color) !important;
+            padding: 0.5rem var(--spacing-sm) !important;
+            font-size: 0.8rem !important; font-weight: 500 !important;
+            color: var(--app-text-color) !important;
             border-bottom: 1px solid var(--app-divider-color);
             border-top-left-radius: var(--border-radius-md); border-top-right-radius: var(--border-radius-md);
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
-            background-color: color-mix(in srgb, var(--app-text-color) 5%, transparent);
+            background-color: color-mix(in srgb, var(--app-text-color) 4%, transparent);
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] {{
-            padding: var(--spacing-sm) var(--spacing-md) !important;
-            background-color: var(--app-secondary-bg-color);
+            padding: var(--spacing-sm) !important;
+             background-color: color-mix(in srgb, var(--app-bg-color) 50%, var(--app-secondary-bg-color) 50%); /* Slightly different from expander summary */
             border-bottom-left-radius: var(--border-radius-md); border-bottom-right-radius: var(--border-radius-md);
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stExpanderDetails"] {{
-            padding-top: 0.6rem !important; padding-bottom: 0.2rem !important;
-            padding-left: 0.1rem !important; padding-right: 0.1rem !important;
+            padding: 0.4rem var(--spacing-xs) 0.1rem var(--spacing-xs) !important; /* More compact */
         }}
         [data-testid="stSidebar"] [data-testid="stExpander"][aria-label^="⚡ DAILY MODEL QUOTAS"] div[data-testid="stHorizontalBlock"] {{
-            gap: 0.25rem !important;
+            gap: 0.15rem !important; /* Tighter gap for quota items */
         }}
 
-        .compact-quota-item {{ display: flex; flex-direction: column; align-items: center; text-align: center; padding: 0px 4px; }}
-        .cq-info {{ font-size: 0.7rem; margin-bottom: 3px; line-height: 1.1; white-space: nowrap; color: var(--app-text-color); }}
+
+        /* Compact Quota Item Styling */
+        .compact-quota-item {{
+            display: flex; flex-direction: column; align-items: center;
+            text-align: center; padding: var(--spacing-xs);
+            background-color: color-mix(in srgb, var(--app-text-color) 2%, transparent);
+            border-radius: var(--border-radius-sm);
+            min-width: 30px; /* Ensure a minimum width */
+        }}
+        .cq-info {{ font-size: 0.65rem; margin-bottom: 2px; line-height: 1; white-space: nowrap; color: var(--app-text-color); }}
         .cq-bar-track {{
-            width: 100%; height: 8px;
+            width: 100%; height: 6px;
             background-color: color-mix(in srgb, var(--app-text-color) 10%, transparent);
             border: 1px solid var(--app-divider-color);
-            border-radius: var(--border-radius-sm); overflow: hidden; margin-bottom: 5px;
+            border-radius: 3px; overflow: hidden; margin-bottom: 3px;
         }}
-        .cq-bar-fill {{ height: 100%; border-radius: var(--border-radius-sm); transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out; }}
-        .cq-value {{ font-size: 0.7rem; font-weight: bold; line-height: 1; }}
+        .cq-bar-fill {{ height: 100%; border-radius: 3px; transition: width 0.3s ease-in-out, background-color 0.3s ease-in-out; }}
+        .cq-value {{ font-size: 0.65rem; font-weight: 600; line-height: 1; }}
 
+        /* Settings Panel in Sidebar */
         .settings-panel {{
             border: 1px solid var(--app-divider-color);
-            border-radius: var(--border-radius-md); padding: var(--spacing-md);
-            margin-top: var(--spacing-sm); margin-bottom: var(--spacing-md);
-            background-color: color-mix(in srgb, var(--app-bg-color) 60%, var(--app-secondary-bg-color) 40%);
+            border-radius: var(--border-radius-md); padding: var(--spacing-sm);
+            margin-top: var(--spacing-xs); margin-bottom: var(--spacing-md);
+            background-color: var(--app-bg-color); /* Slightly different from sidebar bg */
         }}
         .settings-panel .stTextInput input {{
-            border-color: color-mix(in srgb, var(--app-text-color) 30%, transparent) !important;
-            background-color: var(--app-bg-color) !important;
+            border-color: var(--app-border-color) !important;
+            background-color: var(--app-secondary-bg-color) !important;
             color: var(--app-text-color) !important;
+            font-size: 0.85rem;
         }}
-        .settings-panel .stSubheader {{ /* Subheaders within settings panel */
-             color: var(--app-text-color) !important; /* Make them stand out more */
-             font-weight: 600 !important;
+        .settings-panel .stSubheader {{
+             color: var(--app-text-color) !important;
+             font-weight: 600 !important; font-size: 0.9rem !important;
+             margin-bottom: var(--spacing-xs) !important;
         }}
-        .settings-panel hr {{ border-top: 1px solid var(--app-divider-color); margin-top:0.5rem; margin-bottom:0.8rem;}}
+        .settings-panel hr {{ border-top: 1px solid var(--app-divider-color); margin: var(--spacing-sm) 0; }}
         .detailed-quota-modelname {{
-            font-weight: 600;
-            font-size: 1.05em;
-            margin-bottom: 0.3rem;
-            display:block;
+            font-weight: 600; font-size: 0.95em;
+            margin-bottom: 0.2rem; display:block;
             color: var(--app-primary-color);
         }}
-        .detailed-quota-block {{ font-size: 0.87rem; line-height: 1.6; }}
-        .detailed-quota-block ul {{ list-style-type: none; padding-left: 0; margin-bottom: 0.5rem;}}
-        .detailed-quota-block li {{ margin-bottom: 0.15rem; }}
+        .detailed-quota-block {{ font-size: 0.8rem; line-height: 1.5; }}
+        .detailed-quota-block ul {{ list-style-type: none; padding-left: 0; margin-bottom: 0.3rem;}}
+        .detailed-quota-block li {{ margin-bottom: 0.1rem; }}
 
-
+        /* Chat Input Area */
         [data-testid="stChatInputContainer"] {{
             background-color: var(--app-secondary-bg-color);
             border-top: 1px solid var(--app-divider-color);
             padding: var(--spacing-sm) var(--spacing-md);
+            box-shadow: 0 -2px 5px rgba(0,0,0,0.03);
         }}
         [data-testid="stChatInput"] textarea {{
-            border-color: color-mix(in srgb, var(--app-text-color) 30%, transparent) !important;
+            border: 1px solid var(--app-border-color) !important;
             border-radius: var(--border-radius-md) !important;
-            background-color: var(--app-bg-color) !important;
+            background-color: var(--app-secondary-bg-color) !important; /* Match container */
             color: var(--app-text-color) !important;
+            box-shadow: var(--shadow-sm) inset;
+        }}
+        [data-testid="stChatInput"] textarea:focus {{
+            border-color: var(--app-primary-color) !important;
+            box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--app-primary-color) 25%, transparent) !important;
         }}
 
+
+        /* Chat Messages */
         [data-testid="stChatMessage"] {{
             border-radius: var(--border-radius-lg);
-            padding: var(--spacing-md) 1.25rem; margin-bottom: var(--spacing-md);
-            box-shadow: var(--shadow-light); border: 1px solid transparent;
-            max-width: 85%;
+            padding: 0.8rem 1rem;
+            margin-bottom: var(--spacing-sm);
+            box-shadow: var(--shadow-sm);
+            border: 1px solid transparent;
+            max-width: 80%; /* Slightly reduce max width */
+            line-height: 1.5;
         }}
+        [data-testid="stChatMessage"] p {{ margin-bottom: 0.5em; }} /* Spacing between paragraphs in a message */
+        [data-testid="stChatMessage"] p:last-child {{ margin-bottom: 0; }}
+
         [data-testid="stChatMessage"][data-testid^="stChatMessageUser"] {{
-            background-color: var(--app-primary-color); color: white;
-            margin-left: auto; border-top-right-radius: var(--border-radius-sm);
+            background-color: var(--app-primary-color);
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: var(--border-radius-sm); /* Pointy corner */
         }}
         [data-testid="stChatMessage"][data-testid^="stChatMessageAssistant"] {{
             background-color: var(--app-secondary-bg-color);
             color: var(--app-text-color);
-            margin-right: auto; border-top-left-radius: var(--border-radius-sm);
+            margin-right: auto;
             border: 1px solid var(--app-divider-color);
+            border-bottom-left-radius: var(--border-radius-sm); /* Pointy corner */
         }}
-        /* Styling for DEBUG expanders */
-        [data-testid^="stExpander-DEBUG"] {{
-            border: 1px dashed #FF9800; /* Orange dashed border */
-            margin-top: var(--spacing-md);
-            margin-bottom: var(--spacing-md);
-            background-color: color-mix(in srgb, #FF9800 10%, var(--app-bg-color)); /* Light orange background */
-        }}
-        [data-testid^="stExpander-DEBUG"] summary {{
-            color: #E65100 !important; /* Darker orange text */
-            font-weight: bold !important;
-        }}
-        [data-testid^="stExpander-DEBUG"] div[data-testid="stExpanderDetails"] {{
-             background-color: color-mix(in srgb, #FF9800 5%, var(--app-bg-color)); /* Lighter orange */
-        }}
-        [data-testid^="stExpander-DEBUG"] .stSubheader {{
-            color: #E65100 !important; /* Darker orange for subheaders */
-        }}
-        [data-testid^="stExpander-DEBUG"] .stJson, [data-testid^="stExpander-DEBUG"] .stText {{
-            font-size: 0.85rem;
-            /* Optional: Add light border/padding to make JSON/text boxes distinct */
-            border: 1px solid #FFB74D;
-            padding: var(--spacing-sm);
-            border-radius: var(--border-radius-sm);
-            background-color: var(--app-bg-color);
-            margin-bottom: var(--spacing-sm);
-        }}
+        /* Ensure avatars are vertically centered if they are taller than one line of text */
+        [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] {
+            padding-top: 0.1rem; padding-bottom: 0.1rem; /* Adjust if avatars misalign */
+        }
 
 
-        hr.main-hr {{ /* Main content area hr, if needed */
-            margin-top: var(--spacing-md); margin-bottom: var(--spacing-md);
-            border: 0; border-top: 1px solid var(--app-divider-color);
-        }}
-        /* Add a class for top-level dividers in sidebar if needed */
         .sidebar-divider {{
-             margin-top: var(--spacing-sm); margin-bottom: var(--spacing-sm);
+             margin: var(--spacing-md) 0; /* More prominent spacing for dividers */
              border: 0; border-top: 1px solid var(--app-divider-color);
+        }}
+        /* Utility for hiding Streamlit's default "Fork on GitHub" ribbon if desired */
+        /* #GithubIcon {{ display: none; }} */
+        
+        /* Improve general button styling if st.button is used in main area */
+        .main .stButton > button:not([data-testid*="new_chat_button_top"]):not([data-testid*="toggle_settings_button_sidebar"]):not([data-testid*="session_button_"]) {{
+            border-radius: var(--border-radius-md);
+            border: 1px solid var(--app-primary-color);
+            background-color: var(--app-primary-color);
+            color: white;
+            padding: 0.5em 1em;
+            font-weight: 500;
+        }}
+        .main .stButton > button:not([data-testid*="new_chat_button_top"]):not([data-testid*="toggle_settings_button_sidebar"]):not([data-testid*="session_button_"]):hover {{
+            background-color: var(--app-primary-hover-color);
+            border-color: var(--app-primary-hover-color);
         }}
     </style>
     """
@@ -816,9 +816,9 @@ app_requires_api_key_setup = not api_key_is_syntactically_valid or st.session_st
 # -------------------- Main Application Rendering -------------------
 if app_requires_api_key_setup:
     st.set_page_config(page_title="OpenRouter API Key Setup", layout="centered")
-    load_custom_css() # Load CSS even for setup page for consistency if any elements are shared
+    load_custom_css()
     st.title("🔒 OpenRouter API Key Required")
-    st.markdown("---", unsafe_allow_html=True) # Using HTML markdown for consistency
+    st.markdown("---", unsafe_allow_html=True)
     if st.session_state.get("api_key_auth_failed"): st.error("API Key Authentication Failed. Please verify your key on OpenRouter.ai and re-enter.")
     elif not api_key_is_syntactically_valid and st.session_state.get("openrouter_api_key") is not None: st.error("The previously configured API Key has an invalid format. It must start with `sk-or-`.")
     else: st.info("Please configure your OpenRouter API Key to use the application.")
@@ -847,13 +847,12 @@ else:
     if "sid" not in st.session_state: st.session_state.sid = _new_sid(); needs_save_session = True
     elif st.session_state.sid not in sessions:
         logging.warning(f"Session ID {st.session_state.sid} not found. Creating new chat."); st.session_state.sid = _new_sid(); needs_save_session = True
-    # _delete_unused_blank_sessions(keep_sid=st.session_state.sid) # Moved this into _new_sid
+
     if needs_save_session: _save(SESS_FILE, sessions); st.rerun()
 
     if "credits" not in st.session_state: st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0}; st.session_state.credits_ts = 0
-    # Fetch credits if stale (older than 1 hour) or if they are still the default zeros after a few seconds
     credits_are_stale = time.time() - st.session_state.get("credits_ts", 0) > 3600
-    credits_are_default_and_old = (st.session_state.credits.get("total") == 0.0 and st.session_state.credits.get("used") == 0.0 and st.session_state.credits.get("remaining") == 0.0 and st.session_state.get("credits_ts", 0) != 0 and time.time() - st.session_state.get("credits_ts", 0) > 10) # Reduced delay for quicker first fetch
+    credits_are_default_and_old = (st.session_state.credits.get("total") == 0.0 and st.session_state.credits.get("used") == 0.0 and st.session_state.credits.get("remaining") == 0.0 and st.session_state.get("credits_ts", 0) != 0 and time.time() - st.session_state.get("credits_ts", 0) > 10)
     credits_never_fetched = st.session_state.get("credits_ts", 0) == 0
     if credits_are_stale or credits_are_default_and_old or credits_never_fetched:
         logging.info("Refreshing credits (stale, default/old, or never fetched).")
@@ -863,10 +862,9 @@ else:
             st.session_state.credits["total"], st.session_state.credits["used"], st.session_state.credits["remaining"] = credits_data
             st.session_state.credits_ts = time.time()
         else:
-             # If fetch fails, still update timestamp to avoid immediate re-fetch loops
              st.session_state.credits_ts = time.time()
              if not all(isinstance(st.session_state.credits.get(k), (int,float)) for k in ["total", "used", "remaining"]):
-                  st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0} # Ensure default state if fetch fails
+                  st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0}
 
     with st.sidebar:
         settings_button_label = "⚙️ Close Settings" if st.session_state.settings_panel_open else "⚙️ Settings"
@@ -893,7 +891,6 @@ else:
                         st.success("New API Key saved and validated!")
                         st.session_state.credits["total"],st.session_state.credits["used"],st.session_state.credits["remaining"] = credits_data
                         st.session_state.credits_ts = time.time()
-                    # st.session_state.settings_panel_open = False; # Keep open to see new quotas
                     time.sleep(0.8); st.rerun()
                 elif not new_key_input_sidebar: st.warning("API Key field empty. No changes.")
                 else: st.error("Invalid API key format. Must start with 'sk-or-'.")
@@ -902,8 +899,8 @@ else:
             st.subheader("📊 Detailed Model Quotas")
             _ensure_quota_data_is_current()
 
-            for m_key_loop in sorted(NEW_PLAN_CONFIG.keys()): # Iterate only through keys in NEW_PLAN_CONFIG
-                if m_key_loop not in MODEL_MAP: continue # Skip if model key is in config but not MODEL_MAP (shouldn't happen with current config)
+            for m_key_loop in sorted(NEW_PLAN_CONFIG.keys()):
+                if m_key_loop not in MODEL_MAP: continue
 
                 stats = get_quota_usage_and_limits(m_key_loop)
                 if not stats:
@@ -938,13 +935,10 @@ else:
 
                 if m_key_loop == "A" and stats["limit_3hr_msg"] != float('inf'):
                     time_until_next_msg_str = ""
-                    # Need to get the oldest timestamp that will expire *after* the current time
-                    # from the list of calls within the window.
                     active_model_a_calls = sorted(_g_quota_data.get(MODEL_A_3H_CALLS_KEY, []))
                     if len(active_model_a_calls) >= stats['limit_3hr_msg']:
-                         # The oldest call timestamp in the current list determines the next availability
                          oldest_blocking_call_ts = active_model_a_calls[0]
-                         expiry_time = oldest_blocking_call_ts + NEW_PLAN_CONFIG["A"][7] # 3hr_window_seconds
+                         expiry_time = oldest_blocking_call_ts + NEW_PLAN_CONFIG["A"][7]
                          time_remaining_seconds = expiry_time - time.time()
                          if time_remaining_seconds > 0:
                             mins, secs = divmod(int(time_remaining_seconds), 60)
@@ -953,63 +947,53 @@ else:
                                 time_until_next_msg_str = f" (Next in {hrs}h {mins_rem}m)"
                             else:
                                 time_until_next_msg_str = f" (Next in {mins_rem}m {secs}s)"
-
-
                     st.markdown(f"""
-                    <div class="detailed-quota-block" style="margin-top: -0.5rem; margin-left:0.1rem;"> <!-- Full width for this one -->
+                    <div class="detailed-quota-block" style="margin-top: -0.5rem; margin-left:0.1rem;">
                     <ul>
                     <li><b>3-Hour Msgs:</b> {stats['used_3hr_msg']}/{int(stats['limit_3hr_msg'])}{time_until_next_msg_str}</li>
                     </ul>
                     </div>""", unsafe_allow_html=True)
-                st.markdown("<hr>", unsafe_allow_html=True) # Divider after each model's details
+                st.markdown("<hr>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True) # End settings-panel
 
-        st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True) # Using class for specific sidebar hr
-        logo_title_cols = st.columns([1, 4], gap="small")
-        with logo_title_cols[0]: st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=48)
+        st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
+        # Create a container for logo and title for better alignment
+        st.markdown("<div class='sidebar-title-container'>", unsafe_allow_html=True)
+        logo_title_cols = st.columns([1, 5], gap="small") # Adjusted column ratio
+        with logo_title_cols[0]: st.image("https://avatars.githubusercontent.com/u/130328222?s=200&v=4", width=40)
         with logo_title_cols[1]: st.title("OpenRouter Chat")
+        st.markdown("</div>", unsafe_allow_html=True) # Close sidebar-title-container
         st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
 
+
         with st.expander("⚡ DAILY MODEL QUOTAS", expanded=True):
-            # Only display models that are in MODEL_MAP AND NEW_PLAN_CONFIG
             active_model_keys_for_display = sorted([k for k in MODEL_MAP if k in NEW_PLAN_CONFIG])
-            if not active_model_keys_for_display: st.caption("No models configured for quota tracking.")
+            if not active_model_keys_for_display: st.caption("No models configured.")
             else:
                 _ensure_quota_data_is_current()
-                # Create columns dynamically, ensure there's at least one if keys exist
                 if active_model_keys_for_display:
                     quota_cols = st.columns(len(active_model_keys_for_display))
-                else:
-                    quota_cols = [st.container()] # Use a single container if no keys
+                else: quota_cols = [st.container()]
 
                 for i, m_key in enumerate(active_model_keys_for_display):
                     with quota_cols[i]:
                         left_d_msgs = get_remaining_daily_messages(m_key)
                         lim_d_msgs = NEW_PLAN_CONFIG.get(m_key, (0,))[0]
-
-                        # Assuming all limits are finite now based on NEW_PLAN_CONFIG,
-                        # but handle the case of limit being zero to avoid division by zero
                         if lim_d_msgs > 0:
                             pct_float = max(0.0, min(1.0, left_d_msgs / lim_d_msgs))
                             fill_width_val = int(pct_float * 100)
                             left_display = str(left_d_msgs)
-                        else:
-                            # If limit is 0 or not in config (should be handled by outer loop)
-                            # or if stats lookup failed, display 0/0 or N/A
-                            pct_float, fill_width_val, left_display = 0.0, 0, "0" # Or "N/A" if preferred
+                        else: pct_float, fill_width_val, left_display = 0.0, 0, "0"
 
-                        bar_color = "#f44336" # Red (low)
-                        if pct_float > 0.5: bar_color = "#4caf50" # Green (high)
-                        elif pct_float > 0.25: bar_color = "#ffc107" # Yellow (medium)
-
-
+                        bar_color = "var(--app-danger-color)"
+                        if pct_float > 0.5: bar_color = "var(--app-success-color)"
+                        elif pct_float > 0.25: bar_color = "var(--app-warning-color)"
                         emoji_char = EMOJI.get(m_key, "❔")
                         st.markdown(f"""<div class="compact-quota-item"><div class="cq-info">{emoji_char} <b>{m_key}</b></div><div class="cq-bar-track"><div class="cq-bar-fill" style="width: {fill_width_val}%; background-color: {bar_color};"></div></div><div class="cq-value" style="color: {bar_color};">{left_display}</div></div>""", unsafe_allow_html=True)
         st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
         current_session_is_truly_blank = (st.session_state.sid in sessions and sessions[st.session_state.sid].get("title") == "New chat" and not sessions[st.session_state.sid].get("messages"))
         if st.button("➕ New chat", key="new_chat_button_top", use_container_width=True, disabled=current_session_is_truly_blank):
             st.session_state.sid = _new_sid();
-            # _delete_unused_blank_sessions(keep_sid=st.session_state.sid) # Moved inside _new_sid
             _save(SESS_FILE, sessions); st.rerun()
         st.subheader("Chats")
         valid_sids = [s for s in sessions.keys() if isinstance(s, str) and s.isdigit()]
@@ -1025,15 +1009,16 @@ else:
                     _save(SESS_FILE, sessions); st.rerun()
         st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
         st.subheader("Model-Routing Map")
-        st.caption(f"Router: {ROUTER_MODEL_ID}")
+        st.caption(f"Router: {ROUTER_MODEL_ID.split('/')[-1]}") # Shorter router name
         with st.expander("Letters → Models", expanded=False):
-            # Only show models in MODEL_MAP that are also in NEW_PLAN_CONFIG for clarity?
-            # Or show all in MODEL_MAP? Let's stick to MODEL_MAP for the map.
             for k_model in sorted(MODEL_MAP.keys()):
-                desc = MODEL_DESCRIPTIONS.get(k_model, MODEL_MAP.get(k_model, "N/A"))
+                desc_parts = MODEL_DESCRIPTIONS.get(k_model, MODEL_MAP.get(k_model, "N/A")).split("(")
+                main_desc = desc_parts[0].strip()
+                model_name_in_desc = desc_parts[1].split(")")[0] if len(desc_parts) > 1 else MODEL_MAP.get(k_model, "N/A").split('/')[-1]
                 max_tok = MAX_TOKENS.get(k_model, 0)
-                st.markdown(f"**{k_model}**: {desc} (max_out={max_tok:,})")
-            st.markdown(f"**{FALLBACK_MODEL_KEY}**: {FALLBACK_MODEL_EMOJI} {FALLBACK_MODEL_ID} (max_out={FALLBACK_MODEL_MAX_TOKENS:,}) - Used when all standard quotas exhausted or routing fails.")
+                st.markdown(f"**{k_model}**: {main_desc} ({model_name_in_desc}) <br><small style='color:var(--app-text-secondary-color);'>Max Output: {max_tok:,} tokens</small>", unsafe_allow_html=True)
+            st.markdown(f"**{FALLBACK_MODEL_KEY}**: {FALLBACK_MODEL_EMOJI} {FALLBACK_MODEL_ID.split('/')[-1]} <br><small style='color:var(--app-text-secondary-color);'>Max Output: {FALLBACK_MODEL_MAX_TOKENS:,} tokens</small>", unsafe_allow_html=True)
+
         st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
         with st.expander("Account stats (credits)", expanded=False):
             if st.button("Refresh Credits", key="refresh_credits_button_sidebar"):
@@ -1044,207 +1029,109 @@ else:
                         st.session_state.credits_ts = time.time(); st.success("Credits refreshed!")
                     else: st.warning("Could not refresh credits.")
                  else: st.error("API Key authentication failed. Cannot refresh credits.")
-                 st.rerun() # Rerun to update display immediately after refresh attempt
+                 st.rerun()
             tot, used, rem = st.session_state.credits.get("total"), st.session_state.credits.get("used"), st.session_state.credits.get("remaining")
             if tot is None or used is None or rem is None or st.session_state.get("api_key_auth_failed"):
                  st.warning("Could not fetch/display credits.")
-            else: st.markdown(f"**Remaining:** ${float(rem):.2f} cr"); st.markdown(f"**Used:** ${float(used):.2f} cr")
+            else: st.markdown(f"**Remaining:** ${float(rem):.2f} cr <br>**Used:** ${float(used):.2f} cr", unsafe_allow_html=True)
             ts = st.session_state.get("credits_ts", 0)
-            last_updated_str = datetime.fromtimestamp(ts, TZ).strftime('%-d %b, %H:%M:%S') if ts else "N/A"
+            last_updated_str = datetime.fromtimestamp(ts, TZ).strftime('%-d %b, %H:%M') if ts else "N/A" # Shorter time
             st.caption(f"Last updated: {last_updated_str}")
 
 
     # ---- Main chat area ----
     if st.session_state.sid not in sessions:
         logging.error(f"CRITICAL: SID {st.session_state.sid} missing. Resetting."); st.session_state.sid = _new_sid()
-        _save(SESS_FILE, sessions); st.rerun(); # st.stop() - avoid stopping, just rerun
+        _save(SESS_FILE, sessions); st.rerun();
     current_sid = st.session_state.sid
-    chat_history = sessions[current_sid]["messages"] # This is the list used for conversation context
+    chat_history = sessions[current_sid]["messages"]
 
-    # Display existing messages
     for msg in chat_history:
         role = msg.get("role", "assistant"); avatar_char = "👤" if role == "user" else None
         if role == "assistant":
-            m_key = msg.get("model") # Use the stored model key
+            m_key = msg.get("model")
             if m_key == FALLBACK_MODEL_KEY: avatar_char = FALLBACK_MODEL_EMOJI
             elif m_key in EMOJI: avatar_char = EMOJI[m_key]
-            else: avatar_char = "🤖" # Default robot avatar
+            else: avatar_char = "🤖"
         with st.chat_message(role, avatar=avatar_char): st.markdown(msg.get("content", "*empty*"))
 
     if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
-        # Append user message to the current chat history BEFORE routing/calling API
         chat_history.append({"role":"user","content":prompt})
-        # Display the user message immediately
         with st.chat_message("user", avatar="👤"): st.markdown(prompt)
-
-        # --- START DEBUG SECTION 1 ---
-        with st.expander("DEBUG: State before Routing", expanded=False, icon="🐞"):
-            st.subheader("Current `chat_history` (sessions[current_sid]['messages'])")
-            st.caption("This is the history available to the router and the main model call.")
-            st.json(sessions[current_sid]["messages"]) # Should contain user prompt now
-            st.subheader("User Prompt Entered")
-            st.text(prompt)
-        # --- END DEBUG SECTION 1 ---
 
         if not is_api_key_valid(st.session_state.get("openrouter_api_key")) or st.session_state.get("api_key_auth_failed"):
             st.error("API Key not configured or failed. Set in ⚙️ Settings.")
-            # Avoid immediate rerun on API error to let user read the message
-            # if st.session_state.get("api_key_auth_failed"): time.sleep(0.5); st.rerun() # Rerun only if API key setup is required
         else:
-            # Ensure quotas are current before routing
             _ensure_quota_data_is_current()
             allowed_standard_models = [k for k in MODEL_MAP if is_model_available(k)]
 
             use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (False, None, None, None, "🤖")
 
-            # --- START DEBUG SECTION 2 ---
-            with st.expander("DEBUG: Input to `route_choice`", expanded=False, icon="🐞"):
-                 st.subheader("`chat_history` passed to `route_choice`")
-                 st.caption("Router uses a slice of this history for context, excluding the latest user message.")
-                 st.json(chat_history) # This is the full history including the latest user prompt
-                 st.subheader("`allowed_standard_models` passed to `route_choice`")
-                 st.json(allowed_standard_models)
-            # --- END DEBUG SECTION 2 ---
-
-            # Perform routing
             routed_key_letter = route_choice(prompt, allowed_standard_models, chat_history)
 
-            # --- START DEBUG SECTION 3 ---
-            with st.expander("DEBUG: Output from `route_choice`", expanded=False, icon="🐞"):
-                st.subheader("`routed_key_letter` (Selected Model Key)")
-                st.text(routed_key_letter)
-            # --- END DEBUG SECTION 3 ---
-
-            # Determine final model based on routing result and availability
             if st.session_state.get("api_key_auth_failed"):
-                # If API auth failed during routing itself
                 st.error("API Auth failed during model routing. Check Key in Settings.")
-                 # No model_id_to_use; will stop here and await user action
             elif routed_key_letter == FALLBACK_MODEL_KEY:
                 logging.warning(f"Router chose FALLBACK_MODEL_KEY. Using free fallback: {FALLBACK_MODEL_ID}.")
-                st.warning(f"{FALLBACK_MODEL_EMOJI} Router determined no standard models suitable. Using free fallback.")
+                # st.warning(f"{FALLBACK_MODEL_EMOJI} Router determined no standard models suitable. Using free fallback.") # User doesn't need to see this detail always
                 use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
             elif routed_key_letter not in MODEL_MAP or not is_model_available(routed_key_letter):
-                # This case handles router returning invalid key or key for model that became unavailable just now
-                logging.warning(f"Router chose '{routed_key_letter}' (invalid key, not in map, or no quota/unavailable after check). Using free fallback {FALLBACK_MODEL_ID}.")
-                st.warning(f"{FALLBACK_MODEL_EMOJI} Model routing issue or chosen model '{routed_key_letter}' unavailable. Using free fallback.")
+                logging.warning(f"Router chose '{routed_key_letter}' (invalid/no quota). Using fallback {FALLBACK_MODEL_ID}.")
+                # st.warning(f"{FALLBACK_MODEL_EMOJI} Model routing issue or chosen model '{routed_key_letter}' unavailable. Using free fallback.")
                 use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
             else:
-                # Routing successful to an available standard model
                 chosen_model_key = routed_key_letter
                 model_id_to_use = MODEL_MAP[chosen_model_key]
-                max_tokens_api = MAX_TOKENS.get(chosen_model_key, FALLBACK_MODEL_MAX_TOKENS) # Use fallback max tokens if not found
-                avatar_resp = EMOJI.get(chosen_model_key, "🤖") # Use specific emoji or default
+                max_tokens_api = MAX_TOKENS.get(chosen_model_key, FALLBACK_MODEL_MAX_TOKENS)
+                avatar_resp = EMOJI.get(chosen_model_key, "🤖")
 
-            # If a model has been determined (either routed or fallback) and API isn't auth-failed
             if model_id_to_use and not st.session_state.get("api_key_auth_failed"):
-                # --- START DEBUG SECTION 4 ---
-                # This expander is CRITICAL for debugging the high token count issue
-                # It shows the exact messages list and other parameters sent to the main model API call
-                with st.expander(f"DEBUG: Payload for MAIN MODEL CALL ({model_id_to_use})", expanded=True, icon="🐞"): # Keep expanded by default
-                    st.subheader("`messages` list being sent to API (`streamed` function)")
-                    # **EXAMINE THIS JSON CAREFULLY IN A NEW CHAT WITH "test"**
-                    # It should only contain [{"role": "user", "content": "test"}]
-                    st.json(chat_history)
-                    st.subheader("`model` ID")
-                    st.text(model_id_to_use)
-                    st.subheader("`max_tokens` (output limit)")
-                    st.text(max_tokens_api)
-                # --- END DEBUG SECTION 4 ---
-
-                # Stream the response from the chosen model
                 with st.chat_message("assistant", avatar=avatar_resp):
                     response_placeholder, full_response = st.empty(), ""
                     api_call_ok = True
-                    # Pass the chat_history list to the streamed function
                     for chunk_content, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
                         if st.session_state.get("api_key_auth_failed"):
                             full_response = "❗ **API Authentication Error**: Update Key in ⚙️ Settings."
-                            api_call_ok = False; break # Stop processing stream
+                            api_call_ok = False; break
                         if err_msg:
                             full_response = f"❗ **API Error**: {err_msg}"
-                            api_call_ok = False; break # Stop processing stream
+                            api_call_ok = False; break
                         if chunk_content:
                             full_response += chunk_content
-                            response_placeholder.markdown(full_response + "▌") # Display intermediate response with cursor
+                            response_placeholder.markdown(full_response + "▌")
+                    response_placeholder.markdown(full_response)
 
-                    response_placeholder.markdown(full_response) # Display final response
-
-                # Retrieve and log token usage after the stream is complete
                 last_usage = st.session_state.pop("last_stream_usage", None)
                 prompt_tokens_used = 0
                 completion_tokens_used = 0
 
-                # --- START DEBUG SECTION 5 ---
-                # This expander is CRITICAL for debugging the high token count issue
-                # It shows the exact usage reported by the API
-                with st.expander("DEBUG: API Usage Reported", expanded=True, icon="🐞"): # Keep expanded by default
-                    st.subheader("`usage` object from API response (last chunk)")
-                    if last_usage:
-                        st.json(last_usage)
-                        prompt_tokens_reported = last_usage.get('prompt_tokens', 'N/A')
-                        completion_tokens_reported = last_usage.get('completion_tokens', 'N/A')
-                        st.write(f"Prompt Tokens Reported: **{prompt_tokens_reported}**")
-                        st.write(f"Completion Tokens Reported: **{completion_tokens_reported}**")
-                    else:
-                        st.warning("No `usage` object found in session state after stream.")
-                # --- END DEBUG SECTION 5 ---
-
                 if last_usage:
                     prompt_tokens_used = last_usage.get("prompt_tokens", 0)
                     completion_tokens_used = last_usage.get("completion_tokens", 0)
-                    logging.info(f"API call completed for model {model_id_to_use}. Tokens used: Prompt={prompt_tokens_used}, Completion={completion_tokens_used}")
+                    logging.info(f"API call completed for model {model_id_to_use}. Tokens: P={prompt_tokens_used}, C={completion_tokens_used}")
                 else:
-                    logging.warning(f"Token usage information not found in session state after stream for model {model_id_to_use}. Cannot record usage accurately.")
+                    logging.warning(f"Token usage info not found for model {model_id_to_use}.")
 
-                # Append assistant response to chat history
                 chat_history.append({
                     "role": "assistant",
                     "content": full_response,
-                    "model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY, # Store the key of the model used
-                    "prompt_tokens": prompt_tokens_used if api_call_ok else 0, # Record usage only if API call was OK
+                    "model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY,
+                    "prompt_tokens": prompt_tokens_used if api_call_ok else 0,
                     "completion_tokens": completion_tokens_used if api_call_ok else 0
                 })
 
-                # --- START DEBUG SECTION 6 ---
-                with st.expander("DEBUG: State After Assistant Response", expanded=False, icon="🐞"):
-                    st.subheader("`chat_history` (sessions[current_sid]['messages']) after appending assistant response")
-                    st.json(sessions[current_sid]["messages"])
-                # --- END DEBUG SECTION 6 ---
-
-
-                # Record usage and save session if the API call was successful (api_call_ok)
                 if api_call_ok:
-                    # Only record usage for standard models, not the router or the fallback model itself (as it's free)
                     if not use_fallback and chosen_model_key and chosen_model_key in MODEL_MAP:
                        record_use(chosen_model_key, prompt_tokens_used, completion_tokens_used)
-
-                    # Autotitle the chat if it was a "New chat" and the first prompt was successful
-                    if sessions[current_sid]["title"] == "New chat" and prompt and full_response: # Only autotitle if there's a valid prompt/response
+                    if sessions[current_sid]["title"] == "New chat" and prompt and full_response:
                        sessions[current_sid]["title"] = _autoname(prompt)
-                       # No need to delete blank sessions here, _new_sid handles it on creation
 
-                # Always save the session state after a message exchange attempt
                 _save(SESS_FILE, sessions)
-
-                # Rerun to clear the input and update the UI (like sidebar titles)
                 st.rerun()
 
             elif st.session_state.get("api_key_auth_failed"):
-                # If API auth failed, wait briefly before rerunning to show the error
-                time.sleep(0.5)
-                st.rerun()
+                time.sleep(0.5); st.rerun()
             else:
-                # This block should ideally not be reached if model selection logic is sound
                 st.error("Unexpected error: Could not determine a model to use.")
-                logging.error("Reached unexpected state: no model_id and no API auth failure after model selection logic.")
-                # Save state with only user message, rerun
-                _save(SESS_FILE, sessions)
-                st.rerun()
-
-# Ensure session state and saved data are consistent on initial load/rerun
-# This check is handled implicitly by _new_sid and the sid existence check at the start of the else block
-
-# Clean up any blank sessions that might exist if the user navigates away from them
-# This could be done periodically or on startup/shutdown, but doing it on new chat and session switch is sufficient.
-# _delete_unused_blank_sessions(keep_sid=st.session_state.sid) # Already called in _new_sid and session switch logic
+                logging.error("No model_id and no API auth failure after selection logic.")
+                _save(SESS_FILE, sessions); st.rerun()
