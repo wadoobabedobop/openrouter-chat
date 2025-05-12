@@ -41,7 +41,7 @@ MODEL_MAP = {
 }
 # Consider trying a slightly more capable free model if Flash consistently fails complex routing
 # ROUTER_MODEL_ID = "mistralai/mistral-7b-instruct:free"
-ROUTER_MODEL_ID = "google/gemini-2.0-flash-exp:free" # Keep Flash for now, try prompt fix first
+ROUTER_MODEL_ID = "nousresearch/deephermes-3-mistral-24b-preview:free" # Keep Flash for now, try prompt fix first
 MAX_HISTORY_CHARS_FOR_ROUTER = 3000  # Approx. 750 tokens for history context
 
 MAX_TOKENS = { # Per-call max_tokens for API request (max output generation length)
