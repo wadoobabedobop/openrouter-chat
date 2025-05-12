@@ -39,7 +39,9 @@ MODEL_MAP = {
     "E": "anthropic/claude-3.7-sonnet",      # Claude 3.7 Sonnet
     "F": "google/gemini-2.5-flash-preview"   # Gemini 2.5 Flash
 }
-ROUTER_MODEL_ID = "google/gemini-2.0-flash-exp:free"
+# Consider trying a slightly more capable free model if Flash consistently fails complex routing
+# ROUTER_MODEL_ID = "mistralai/mistral-7b-instruct:free"
+ROUTER_MODEL_ID = "google/gemini-2.0-flash-exp:free" # Keep Flash for now, try prompt fix first
 MAX_HISTORY_CHARS_FOR_ROUTER = 3000  # Approx. 750 tokens for history context
 
 MAX_TOKENS = { # Per-call max_tokens for API request (max output generation length)
@@ -47,38 +49,38 @@ MAX_TOKENS = { # Per-call max_tokens for API request (max output generation leng
     "D": 8_000, "E": 8_000, "F": 8_000
 }
 
-# NEW QUOTA CONFIGURATION based on the provided table
-# (daily_msg, monthly_msg, daily_in_tokens, monthly_in_tokens, daily_out_tokens, monthly_out_tokens, 3hr_msg_limit, 3hr_window_seconds)
+# QUOTA CONFIGURATION (Unchanged)
 NEW_PLAN_CONFIG = {
-    "A": (10, 200, 5000, 100000, 5000, 100000, 3, 3 * 3600),  # Gemini 2.5 Pro
-    "B": (10, 200, 5000, 100000, 5000, 100000, 0, 0),          # GPT-4o mini
-    "C": (10, 200, 5000, 100000, 5000, 100000, 0, 0),          # GPT-4o
-    "D": (10, 200, 5000, 100000, 5000, 100000, 0, 0),          # DeepSeek R1
-    "E": (10, 200, 5000, 100000, 5000, 100000, 0, 0),          # Claude 3.7 Sonnet (Same as C/B/D)
-    "F": (150, 3000, 75000, 1500000, 75000, 1500000, 0, 0)     # Gemini 2.5 Flash
+    "A": (10, 200, 5000, 100000, 5000, 100000, 3, 3 * 3600),
+    "B": (10, 200, 5000, 100000, 5000, 100000, 0, 0),
+    "C": (10, 200, 5000, 100000, 5000, 100000, 0, 0),
+    "D": (10, 200, 5000, 100000, 5000, 100000, 0, 0),
+    "E": (10, 200, 5000, 100000, 5000, 100000, 0, 0),
+    "F": (150, 3000, 75000, 1500000, 75000, 1500000, 0, 0)
 }
 
 EMOJI = {
     "A": "🌟", "B": "🔷", "C": "🟥", "D": "🟢", "E": "🖋️", "F": "🌀"
 }
 
+# MODEL_DESCRIPTIONS (Reflects cost F < D < B < A < E < C)
 MODEL_DESCRIPTIONS = {
-    "A": "🌟 (gemini-2.5-pro-preview) – High capability, moderate cost.", # Cost updated
+    "A": "🌟 (gemini-2.5-pro-preview) – High capability, moderate cost.",
     "B": "🔷 (o4-mini) – Mid-stakes reasoning, cost-effective.",
-    "C": "🟥 (chatgpt-4o-latest) – Polished/empathetic, HIGHEST cost.", # Cost updated
-    "D": "🟢 (deepseek-r1) – Very cheap factual reasoning.", # Cost updated
-    "E": "🖋️ (claude-3.7-sonnet) – Novel, creative, high cost.", # Cost updated
-    "F": "🌀 (gemini-2.5-flash-preview) – Quick, CHEAPEST, general purpose." # Cost updated
+    "C": "🟥 (chatgpt-4o-latest) – Polished/empathetic, HIGHEST cost.",
+    "D": "🟢 (deepseek-r1) – Very cheap factual/technical reasoning.",
+    "E": "🖋️ (claude-3.7-sonnet) – Novel, creative, high cost.",
+    "F": "🌀 (gemini-2.5-flash-preview) – Quick, CHEAPEST, simple tasks."
 }
 
-# NEW ROUTER_MODEL_GUIDANCE based on cost hierarchy: F < D < B < A < E < C
+# ROUTER_MODEL_GUIDANCE (Reflects cost F < D < B < A < E < C, focuses on adequacy)
 ROUTER_MODEL_GUIDANCE = {
-    "A": "(Model A: High Capability, Moderate Cost) Use for complex reasoning, demanding creative tasks (e.g., sophisticated analysis, long-form generation) where 'B', 'D', or 'F' lack the necessary power. COST: Mid-High (cheaper than E, C). CHOOSE ONLY if the task explicitly requires strong analytical or generative capabilities beyond 'B', but does NOT necessitate the specific creative style of 'E' or the extreme polish of 'C'. Avoid if 'B'/'D'/'F' can handle it.",
-    "B": "(Model B: Solid Mid-Tier All-Rounder) Use for general purpose chat, moderate reasoning, summarization, drafting, standard instruction following where 'F' or 'D' are insufficient. Good balance. COST: Low-Mid (cheaper than A, E, C). CHOOSE as a step up from 'F'/'D' for general tasks. Prefer cheaper options first. Avoid if 'A', 'E', or 'C' capabilities are genuinely required.",
-    "C": "(Model C: Polished & Empathetic, HIGHEST COST) Use ONLY for tasks demanding exceptionally polished, empathetic, or human-like interaction, or complex creative collaboration where its specific tone/style is *indispensable*. COST: HIGHEST. AVOID THIS MODEL unless the query *explicitly benefits* from its unique expensive style AND *all* cheaper alternatives ('E', 'A', 'B', 'D', 'F') are demonstrably inadequate. Be extremely critical before selecting 'C'.",
-    "D": "(Model D: Cost-Effective Factual & Technical) Use for factual Q&A, code tasks, data extraction, straightforward logic, technical queries where 'F' is too basic. COST: Very Low (cheaper than B, A, E, C). CHOOSE for well-defined technical/factual tasks. Prefer over 'B' for these specific tasks if cost is the priority. Very slow responses.",
-    "E": "(Model E: Novel & Creative, High Cost) Use for generating highly original creative content (unique concepts, non-standard styles), brainstorming fresh angles, or when a less 'corporate' voice is needed, AND 'A' or 'B' lack the required creative spark or distinctiveness. COST: High (cheaper than C, more expensive than A, B, D, F). CHOOSE carefully when *novelty* or *unique style* is the primary goal and is worth the significant cost increase over 'A'/'B'. Do NOT use for general tasks if cheaper models suffice.",
-    "F": "(Model F: Fast & Economical, CHEAPEST) Use for very quick, simple Q&A, fast summaries (<200 words), basic classification, brief translations, low-complexity tasks where speed/cost are paramount. COST: LOWEST. ***This should be your default starting point.*** Always evaluate if 'F' can handle the request before considering any other model."
+    "A": "(Model A: High Capability, Moderate Cost [Cost Rank 4/6]) Use for complex reasoning, demanding creative tasks (sophisticated analysis, long-form generation) ONLY IF 'B', 'D', or 'F' definitively *lack the power*. Cheaper than E, C.",
+    "B": "(Model B: Solid Mid-Tier [Cost Rank 3/6]) Use for general chat, moderate reasoning, summarization, standard tasks IF 'F'/'D' are *clearly insufficient*. Good balance. Cheaper than A, E, C.",
+    "C": "(Model C: Polished & Empathetic, HIGHEST COST [Cost Rank 6/6]) ***AVOID UNLESS ABSOLUTELY NECESSARY***. Use ONLY for tasks demanding *extreme* polish/empathy where its specific style is *indispensable*, AND *ALL* cheaper options ('E', 'A', 'B', 'D', 'F') are *demonstrably inadequate*. Requires strong justification.",
+    "D": "(Model D: Factual & Technical [Cost Rank 2/6]) Use for factual Q&A, code tasks, data extraction, straightforward logic IF 'F' is *too basic*. Prefer over 'B'/'A'/'E'/'C' for these tasks if cost allows. Slow.",
+    "E": "(Model E: Novel & Creative, High Cost [Cost Rank 5/6]) Use for highly *original/unique* creative content, brainstorming fresh angles, or a distinct non-corporate style, ONLY IF 'A'/'B' *lack the required creative spark* AND the high cost is justified. Cheaper than C.",
+    "F": "(Model F: Fast & Economical, CHEAPEST [Cost Rank 1/6]) Use for *simple, low-stakes* tasks: quick Q&A, short summaries, basic classification. ***DO NOT USE 'F' IF*** the query involves: complexity, multi-step reasoning, sensitive topics (mental health, grief, safety), math, deep analysis, nuanced creativity, or requires high accuracy/reliability." # Added strong negative constraints
 }
 
 TZ = ZoneInfo("Australia/Sydney")
@@ -303,7 +305,7 @@ def is_model_available(model_key: str) -> bool:
     stats = get_quota_usage_and_limits(model_key)
     if not stats: return False # Should not happen if key is in NEW_PLAN_CONFIG
 
-    # Check all standard quotas
+    # Check all standard quotas (only if limit > 0)
     if stats["limit_daily_msg"] > 0 and stats["used_daily_msg"] >= stats["limit_daily_msg"]: return False
     if stats["limit_monthly_msg"] > 0 and stats["used_monthly_msg"] >= stats["limit_monthly_msg"]: return False
     if stats["limit_daily_in_tokens"] > 0 and stats["used_daily_in_tokens"] >= stats["limit_daily_in_tokens"]: return False
@@ -392,8 +394,13 @@ def _autoname(seed: str) -> str:
 
 # --------------------------- Logging ----------------------------
 # Ensure basic logging is configured early
+# Set level to DEBUG to see detailed router prompts and responses
+log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+numeric_level = getattr(logging, log_level, logging.INFO)
 if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", stream=sys.stdout)
+    logging.basicConfig(level=numeric_level, format="%(asctime)s | %(levelname)s | %(message)s", stream=sys.stdout)
+    logging.info(f"Logging level set to: {log_level}")
+
 
 def is_api_key_valid(api_key_value):
     return api_key_value and isinstance(api_key_value, str) and api_key_value.startswith("sk-or-")
@@ -483,23 +490,20 @@ def streamed(model: str, messages: list, max_tokens_out: int):
         logging.exception(f"Unexpected error during streamed API call: {e}") # Use logging.exception to include traceback
         yield None, f"An unexpected error occurred: {e}"
 
-
-# ------------------------- Model Routing -----------------------
+# ------------------------- Model Routing (REVISED) -----------------------
 def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
-    # Determine fallback choice: Prefer 'F' if allowed, else first allowed, else 'F' if exists, else first in MODEL_MAP, else absolute fallback
+    # Determine fallback choice (logic unchanged, but now F is cheapest)
     if "F" in allowed: fallback_choice_letter = "F"
-    elif allowed: fallback_choice_letter = allowed[0] # Use the first available model as fallback
-    elif "F" in MODEL_MAP: fallback_choice_letter = "F" # If F exists but wasn't allowed (quota?) still prefer it as config fallback
-    elif MODEL_MAP: fallback_choice_letter = list(MODEL_MAP.keys())[0] # Absolute fallback to *any* configured model
+    elif allowed: fallback_choice_letter = allowed[0]
+    elif "F" in MODEL_MAP: fallback_choice_letter = "F"
+    elif MODEL_MAP: fallback_choice_letter = list(MODEL_MAP.keys())[0]
     else:
-        logging.error("Router: No models available in MODEL_MAP for fallback. Using FALLBACK_MODEL_KEY.")
-        return FALLBACK_MODEL_KEY # Use the free, non-quota model
+        logging.error("Router: No models configured. Using FALLBACK_MODEL_KEY.")
+        return FALLBACK_MODEL_KEY
 
     if not allowed:
-        logging.warning(f"route_choice called with empty allowed list. Defaulting to fallback: '{fallback_choice_letter}' (or free if needed).")
-        # Even if 'allowed' is empty, check if the determined fallback_choice_letter is actually available
-        if is_model_available(fallback_choice_letter):
-             return fallback_choice_letter
+        logging.warning(f"Router: No models available due to quotas. Defaulting to fallback: '{fallback_choice_letter}' (or free if needed).")
+        if is_model_available(fallback_choice_letter): return fallback_choice_letter
         else:
             logging.warning(f"Fallback choice '{fallback_choice_letter}' also unavailable. Using free fallback: {FALLBACK_MODEL_KEY}.")
             return FALLBACK_MODEL_KEY
@@ -508,109 +512,100 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
         logging.info(f"Router: Only one model allowed ('{allowed[0]}'), selecting it directly.")
         return allowed[0]
 
-    # Prepare history context for the router
+    # Prepare history context (Unchanged)
     history_segments = []
     current_chars = 0
-    # Look back through history *excluding* the current user message (which is the target)
     relevant_history_for_router = chat_history[:-1] if chat_history else []
     for msg in reversed(relevant_history_for_router):
-        role = msg.get("role", "assistant").capitalize()
-        content = msg.get("content", "")
-        if not isinstance(content, str): content = str(content) # Ensure content is string
-        segment = f"{role}: {content}\n"
-        # Check length before adding to avoid exceeding limit
+        role = msg.get("role", "assistant").capitalize(); content = msg.get("content", "")
+        if not isinstance(content, str): content = str(content)
+        segment = f"{role}: {content}\n";
         if current_chars + len(segment) > MAX_HISTORY_CHARS_FOR_ROUTER: break
-        history_segments.append(segment)
-        current_chars += len(segment)
+        history_segments.append(segment); current_chars += len(segment)
+    history_context_str = "".join(reversed(history_segments)).strip() or "No prior conversation history."
 
-    history_context_str = "".join(reversed(history_segments)).strip()
-    if not history_context_str: history_context_str = "No prior conversation history for this session."
-
-    # Build the system prompt for the router model - UPDATED FOR NEW COST HIERARCHY
+    # --- Build the REVISED system prompt ---
     system_prompt_parts = [
-        "You are an expert AI model routing assistant. Your task is to select the *single most appropriate and cost-effective* model letter from the 'Available Models' list to handle the 'Latest User Query' provided at the end. Consider the 'Recent Conversation History' for context.",
-        "Strictly adhere to these decision-making principles in order of importance:",
-        "1. ***Maximize Cost-Effectiveness (PRIMARY GOAL)***: Always select the *absolute cheapest* model that can adequately perform the task. The cost order (cheapest to most expensive) is: **F < D < B < A < E < C**. Do NOT select more expensive models (B, A, E, C) unless explicitly justified by the query's requirements that *demonstrably cannot* be met by a cheaper available option. Start by evaluating 'F', then 'D', then 'B', etc.", # UPDATED COST ORDER AND EMPHASIS
-        "2. Analyze Latest User Query Intent (in context of history): Deeply understand what the user is trying to achieve with their *latest query*, the complexity involved (simple, moderate, high, extreme), the desired output style (factual, creative, conversational, unique, polished), and any implicit needs, considering the flow of the conversation so far.",
-        "3. Match to Model Strengths and Weaknesses as described below."
+        "You are an expert AI model routing assistant. Your task is to select the *single most appropriate and cost-effective* model letter from the 'Available Models' list to handle the 'Latest User Query'.",
+        "Core Principles:",
+        "1. **Assess Adequacy FIRST:** Before considering cost, determine the *minimum capability required* for the query. Is it simple, moderate, complex, creative, sensitive? Does it require high accuracy, deep reasoning, or specific stylistic output?",
+        "2. **Maximize Cost-Effectiveness SECOND:** Once adequacy is assessed, choose the ***absolute cheapest*** model from the 'Available Models' list that meets the minimum capability requirement. Cost Order (cheapest to most expensive): **F < D < B < A < E < C**.",
+        "3. **Prioritize Safety and Sensitivity:** For queries involving mental health, grief, safety concerns, or other sensitive topics, *err on the side of caution* and choose a more capable/nuanced model (likely B, A, or E minimum) even if a cheaper one *might* seem barely adequate. Avoid 'F' and 'D' for sensitive topics.", # Added safety emphasis
+        "4. **Consider History:** Use 'Recent Conversation History' for context, but base the decision primarily on the *Latest User Query* requirements."
     ]
-    system_prompt_parts.append("\nAvailable Models (select one letter, refer to cost order F < D < B < A < E < C):")
-    # Use the updated ROUTER_MODEL_GUIDANCE which reflects the new cost hierarchy
-    for k_model_key in allowed: # Only show guidance for currently allowed models
-        description = ROUTER_MODEL_GUIDANCE.get(k_model_key, f"(Model {k_model_key} - General purpose description; details not found).")
+    system_prompt_parts.append("\nAvailable Models (Cost Order: F < D < B < A < E < C):")
+    # Use the updated ROUTER_MODEL_GUIDANCE which includes negative constraints for F
+    for k_model_key in allowed:
+        description = ROUTER_MODEL_GUIDANCE.get(k_model_key, f"(Model {k_model_key} - Description not found).")
         system_prompt_parts.append(f"- {k_model_key}: {description}")
 
-    # Add specific selection guidance based on which models are currently allowed, reinforcing cost order
-    system_prompt_parts.append("\nSpecific Selection Guidance (apply rigorously to the 'Latest User Query', always preferring the cheapest adequate option):")
-    if "F" in allowed: system_prompt_parts.append("  - **START HERE:** Can 'F' handle the query? If yes (simple Q&A, quick summary, basic task), CHOOSE 'F'.")
-    if "D" in allowed: system_prompt_parts.append("  - If 'F' (if available) is insufficient AND the query is primarily factual, technical, or code-related, CHOOSE 'D'.")
-    if "B" in allowed: system_prompt_parts.append("  - If 'F'/'D' (if available) are insufficient AND the query requires general reasoning, drafting, or standard creative work, CHOOSE 'B'.")
-    if "A" in allowed: system_prompt_parts.append("  - If 'B' (if available) lacks the necessary complex reasoning or high-level generative power, CHOOSE 'A'. (Costlier than B).")
-    if "E" in allowed: system_prompt_parts.append("  - If 'A'/'B' (if available) are insufficient for specifically *novel/unique* creative tasks or require a distinct non-corporate style, *consider* 'E'. (Costlier than A). Justify carefully.")
-    if "C" in allowed: system_prompt_parts.append("  - **LAST RESORT:** If AND ONLY IF the query explicitly demands *extreme polish/empathy* AND 'E'/'A'/'B' (if available) are clearly inadequate stylistically, *consider* 'C'. (Highest Cost). Be extremely hesitant.")
+    # REVISED Specific Selection Guidance emphasizing adequacy *before* cost saving
+    system_prompt_parts.append("\nDecision Process for 'Latest User Query':")
+    system_prompt_parts.append("1. **Analyze Query:** Understand complexity, intent, required style, sensitivity.")
+    system_prompt_parts.append("2. **Is 'F' sufficient?** (Available: {}). Check F's 'DO NOT USE' constraints in its description above. If the query is simple AND avoids those constraints, choose 'F'. ".format("Yes" if "F" in allowed else "No"))
+    system_prompt_parts.append("3. **If not 'F', is 'D' sufficient?** (Available: {}). Suitable for technical/factual tasks if 'F' is too basic. Check sensitivity.".format("Yes" if "D" in allowed else "No"))
+    system_prompt_parts.append("4. **If not 'D', is 'B' sufficient?** (Available: {}). Good for general moderate tasks, standard creativity, sensitive topics where F/D are inappropriate.".format("Yes" if "B" in allowed else "No"))
+    system_prompt_parts.append("5. **If not 'B', is 'A' sufficient?** (Available: {}). Needed for higher complexity/reasoning/generation than 'B'.".format("Yes" if "A" in allowed else "No"))
+    system_prompt_parts.append("6. **If not 'A', is 'E' sufficient?** (Available: {}). Needed for specific *novel/unique* creative style beyond 'A', or sensitive topics needing high nuance.".format("Yes" if "E" in allowed else "No"))
+    system_prompt_parts.append("7. **If not 'E', consider 'C'?** (Available: {}). ***Extreme last resort*** only if *peak* polish/empathy is explicitly required and worth the highest cost.".format("Yes" if "C" in allowed else "No"))
+    system_prompt_parts.append("8. **Select the *first* sufficient model encountered in the F -> D -> B -> A -> E -> C evaluation order that is also in the 'Available Models' list.**")
 
-    system_prompt_parts.append("\nRecent Conversation History (context for the 'Latest User Query'):")
+    system_prompt_parts.append("\nRecent Conversation History (Context):")
     system_prompt_parts.append(history_context_str)
-    system_prompt_parts.append("\nINSTRUCTIONS: Based on the STRICT cost-first principle (F < D < B < A < E < C) and the query analysis, respond with ONLY the single capital letter of the *cheapest adequate* model from the 'Available Models' list (e.g., A, B, C, D, E, or F). NO EXPLANATION, NO EXTRA TEXT, JUST THE LETTER.") # Re-emphasized cost
+    system_prompt_parts.append(f"\nAvailable Model Letters: {', '.join(sorted(allowed))}") # Explicitly list allowed letters
+    # User message will be appended by the API call structure - Removed explicit label here, it's implicit in the user role message
+
+    system_prompt_parts.append("\nINSTRUCTION: Based *strictly* on the adequacy assessment and cost-optimization process described (F->D->B->A->E->C), analyze the 'Latest User Query' (provided in the user role message). Respond with ONLY the single capital letter of the *cheapest adequate* model available. NO EXPLANATION.")
     final_system_message = "\n".join(system_prompt_parts)
+    logging.debug(f"Router System Prompt:\n{final_system_message}") # Log the prompt for debugging
 
     router_messages = [{"role": "system", "content": final_system_message}, {"role": "user", "content": user_msg}]
-    payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10, "temperature": 0.05} # Slightly lower temp for more deterministic choice
+    # Increased temperature slightly
+    payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10, "temperature": 0.2}
+    logging.debug(f"Router Payload: {json.dumps(payload_r, indent=2)}")
 
     try:
-        r = api_post(payload_r) # Use the wrapper which handles auth errors
+        r = api_post(payload_r)
         choice_data = r.json()
+        logging.debug(f"Router Full Response JSON: {json.dumps(choice_data, indent=2)}") # Log full response
         raw_text_response = choice_data.get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
-        logging.info(f"Router raw response: '{raw_text_response}' for query: '{user_msg[:100]}...' with history context.")
+        logging.info(f"Router raw text response: '{raw_text_response}' for query: '{user_msg[:100]}...'")
 
-        # Find the *first* character in the response that is an *allowed* model key
         chosen_model_letter = None
+        # Check the response *only* for allowed characters
         for char_in_response in raw_text_response:
-            if char_in_response in allowed: # Check against the dynamic list of allowed models
-                chosen_model_letter = char_in_response; break
+            if char_in_response in allowed:
+                chosen_model_letter = char_in_response
+                logging.info(f"Router selected model '{chosen_model_letter}' (from response '{raw_text_response}', allowed: {allowed})")
+                break # Found first allowed character
 
         if chosen_model_letter:
-            logging.info(f"Router selected model: '{chosen_model_letter}'")
             return chosen_model_letter
         else:
             logging.warning(f"Router returned ('{raw_text_response}') - no allowed letter found or response invalid. Fallback to '{fallback_choice_letter}'.")
-            # Check if fallback choice itself is available before returning it
-            if is_model_available(fallback_choice_letter):
-                return fallback_choice_letter
+            if is_model_available(fallback_choice_letter): return fallback_choice_letter
             else:
-                 logging.warning(f"Fallback choice '{fallback_choice_letter}' also unavailable. Using free fallback: {FALLBACK_MODEL_KEY}.")
-                 return FALLBACK_MODEL_KEY
+                logging.warning(f"Fallback choice '{fallback_choice_letter}' also unavailable. Using free fallback: {FALLBACK_MODEL_KEY}.")
+                return FALLBACK_MODEL_KEY
 
-    except ValueError as ve: # Catches API key issue from api_post
-        logging.error(f"Router call failed due to invalid API key or config: {ve}")
-        st.session_state.api_key_auth_failed = True # Ensure state reflects failure
-        # Don't return a model letter, let the main loop handle the auth error display
-        return None # Indicate router failure due to auth
+    # --- Error handling (same as before) ---
+    except ValueError as ve: logging.error(f"Router call failed due to invalid API key or config: {ve}"); st.session_state.api_key_auth_failed = True; return None
     except requests.exceptions.HTTPError as e:
-        status_code = e.response.status_code if e.response else 'N/A'
-        err_text = e.response.text if e.response else 'No response text'
+        status_code = e.response.status_code if e.response else 'N/A'; err_text = e.response.text if e.response else 'No response text'
         logging.error(f"Router HTTPError {status_code}: {err_text}")
-        # If auth failed during routing, set the flag
         if status_code == 401: st.session_state.api_key_auth_failed = True; return None
-        # For other HTTP errors, try the fallback
-    except (requests.exceptions.RequestException) as e:
-        logging.error(f"Router Network Error: {e}")
-        # Network error, try the fallback
+    except requests.exceptions.RequestException as e: logging.error(f"Router Network Error: {e}")
     except (KeyError, IndexError, AttributeError, json.JSONDecodeError) as je:
         response_text_for_log = r.text if 'r' in locals() and hasattr(r, 'text') else "N/A"
         logging.error(f"Router JSON/structure error: {je}. Raw: {response_text_for_log}")
-        # Corrupt response, try the fallback
-    except Exception as e:
-        logging.exception(f"Router unexpected error: {e}") # Log full traceback
-        # Unexpected error, try the fallback
+    except Exception as e: logging.exception(f"Router unexpected error: {e}")
 
+    # Fallback if any error occurred above (except auth error which returns None)
     logging.warning(f"Router failed. Fallback to model letter: {fallback_choice_letter} (or free if needed).")
-    if is_model_available(fallback_choice_letter):
-        return fallback_choice_letter
+    if is_model_available(fallback_choice_letter): return fallback_choice_letter
     else:
         logging.warning(f"Fallback choice '{fallback_choice_letter}' also unavailable. Using free fallback: {FALLBACK_MODEL_KEY}.")
         return FALLBACK_MODEL_KEY
-
 
 # --------------------- Credits Endpoint -----------------------
 def get_credits():
@@ -1127,8 +1122,6 @@ else:
                     active_model_a_calls = sorted(_g_quota_data.get(MODEL_A_3H_CALLS_KEY, []))
                     if len(active_model_a_calls) >= stats['limit_3hr_msg']:
                          # Find the timestamp that needs to expire for a new call to be allowed
-                         # This is the oldest timestamp if the list size is exactly the limit,
-                         # or the (limit)th oldest if the list size exceeds the limit (shouldn't happen with pruning)
                          if active_model_a_calls: # Ensure list is not empty
                              # Index from the end to find the oldest call that *counts* towards the limit
                              oldest_blocking_call_idx = max(0, len(active_model_a_calls) - int(stats['limit_3hr_msg']))
@@ -1235,13 +1228,6 @@ else:
             display_title = (title[:30] + "…") if len(title) > 30 else title
             is_active_chat = (st.session_state.sid == sid_key)
 
-            # Add a delete button next to each chat title (except the active one?)
-            # col_title, col_del = st.columns([5, 1])
-            # with col_title:
-            #      st.button(...) # Existing button logic
-            # with col_del:
-            #      if not is_active_chat: st.button("🗑️", key=f"del_{sid_key}", ...) # Delete logic needed
-
             if st.button(display_title, key=f"session_button_{sid_key}", use_container_width=True, disabled=is_active_chat):
                 if not is_active_chat:
                     # Before switching, delete any *other* blank sessions if the current one wasn't blank
@@ -1335,55 +1321,24 @@ else:
 
     chat_history = sessions[current_sid]["messages"]
 
-      # --- Display Existing Chat Messages ---
-    # Ensure chat_history is a list (it should be based on earlier code)
-    if not isinstance(chat_history, list):
-        logging.error(f"CRITICAL: chat_history for SID {current_sid} is not a list! Type: {type(chat_history)}. Resetting to empty list.")
-        chat_history = []
-        sessions[current_sid]["messages"] = chat_history # Fix it in the session data
-        _save(SESS_FILE, sessions) # Save the fix immediately
-
-    for msg_idx, msg in enumerate(chat_history):
-        # Ensure msg is a dictionary before proceeding
-        if not isinstance(msg, dict):
-            logging.warning(f"Skipping invalid message item at index {msg_idx} for SID {current_sid}: Not a dictionary. Item: {msg}")
-            continue # Skip to the next message
-
-        # Determine role and avatar for the message
-        role = msg.get("role", "assistant") # Default to assistant if role missing
+    # --- Display Existing Chat Messages ---
+    for msg_idx, msg in enumerate(chat_history): # Use enumerate for potential keys
+        role = msg.get("role", "assistant")
         avatar_char = None
         if role == "user":
             avatar_char = "👤"
         elif role == "assistant":
             m_key = msg.get("model") # Get the model key used for this message
-            if m_key == FALLBACK_MODEL_KEY:
-                avatar_char = FALLBACK_MODEL_EMOJI
-            elif m_key in EMOJI:
-                # Use .get for safety in case EMOJI map changes or key is missing
-                avatar_char = EMOJI.get(m_key, "🤖")
-            else:
-                avatar_char = "🤖" # Default assistant avatar if model unknown
+            if m_key == FALLBACK_MODEL_KEY: avatar_char = FALLBACK_MODEL_EMOJI
+            elif m_key in EMOJI: avatar_char = EMOJI[m_key]
+            else: avatar_char = "🤖" # Default assistant avatar if model unknown
         else: # Handle potential system messages or other roles if added later
-             role="assistant" # Display non-user/assistant as assistant for now
-             avatar_char = "⚙️" # System/other avatar
+             role="assistant" # Display as assistant for now
+             avatar_char = "⚙️"
 
-        # Ensure role and avatar_char are valid before calling chat_message
-        # Note: st.chat_message uses 'name' for the role argument.
-        if not isinstance(role, str) or not isinstance(avatar_char, (str, type(None))):
-             logging.warning(f"Skipping message at index {msg_idx} for SID {current_sid} due to invalid role/avatar. Role: {role}, Avatar: {avatar_char}")
-             continue # Skip invalid message
-
-        # Use st.chat_message without the 'key' argument
-        with st.chat_message(name=role, avatar=avatar_char): # Key argument removed here
-            # Display the content using markdown
-            content_to_display = msg.get("content", "*empty message*")
-            if not isinstance(content_to_display, str):
-                 logging.warning(f"Message content at index {msg_idx} for SID {current_sid} is not a string. Converting. Type: {type(content_to_display)}")
-                 content_to_display = str(content_to_display) # Attempt conversion
-            st.markdown(content_to_display)
-
-    # --- Chat Input Logic ---
-    # (The rest of your chat input logic starts here)
+        with st.chat_message(role, avatar=avatar_char):
+             # Add message index to key to ensure uniqueness if content is identical
+             st.markdown(msg.get("content", "*empty message*"), key=f"msg_{current_sid}_{msg_idx}")
 
     # --- Chat Input Logic ---
     if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
@@ -1405,15 +1360,26 @@ else:
         routing_start_time = time.time()
         with st.spinner("Selecting best model..."): # More specific spinner text
             _ensure_quota_data_is_current() # Refresh quota view
-            # Determine available models based on quotas *before* routing
-            allowed_standard_models = [k for k in MODEL_MAP if is_model_available(k)]
-            logging.info(f"Models available based on quota: {allowed_standard_models}")
+
+            # *** ADDED LOGGING HERE ***
+            logging.info("--- Checking Model Availability Before Routing ---")
+            allowed_standard_models = []
+            # Check models in cost order F -> D -> B -> A -> E -> C
+            cost_order_check = ["F", "D", "B", "A", "E", "C"]
+            for k_map in cost_order_check:
+                 if k_map in MODEL_MAP: # Only check models defined in our map
+                     available = is_model_available(k_map)
+                     logging.info(f"Model {k_map} ({MODEL_MAP[k_map]}): Available = {available}")
+                     if available:
+                          allowed_standard_models.append(k_map)
+            logging.info(f"Final allowed models passed to router: {allowed_standard_models}")
+            # *** END ADDED LOGGING ***
 
             use_fallback = False
             chosen_model_key = None
             model_id_to_use = None
-            max_tokens_api = FALLBACK_MODEL_MAX_TOKENS # Default
-            avatar_resp = "🤖" # Default
+            max_tokens_api = FALLBACK_MODEL_MAX_TOKENS
+            avatar_resp = "🤖"
 
             # Call the router function
             routed_key_letter = route_choice(prompt, allowed_standard_models, chat_history)
