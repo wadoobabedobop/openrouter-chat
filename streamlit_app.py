@@ -71,7 +71,7 @@ MODEL_DESCRIPTIONS = {
 ROUTER_MODEL_GUIDANCE = {
     "A": "(Model A: Top-Tier Quality & Capability) Use for EXTREMELY complex, multi-step reasoning; highly advanced creative generation (e.g., novel excerpts, sophisticated poetry); tasks demanding cutting-edge knowledge and deep nuanced understanding. HIGHEST COST. CHOOSE ONLY if query explicitly demands top-tier, 'genius-level' output AND cheaper models are CLEARLY insufficient. Avoid for anything less.",
     "B": "(Model B: Solid Mid-Tier All-Rounder) Use for general purpose chat; moderate complexity reasoning; summarization; drafting emails/content; brainstorming; standard instruction following. Good balance of capability and cost. MODERATE COST. CHOOSE if 'F' or 'D' are too basic, AND 'A' or 'C' are overkill/not strictly necessary for the task's core requirements.",
-    "C": "(Model C: High Quality, Polished & Empathetic) Use for tasks requiring highly polished, empathetic, or very human-like conversational interactions; complex multi-turn instruction adherence where its specific stylistic strengths are key; creative content generation with a defined sophisticated tone. HIGHER COST. CHOOSE ONLY if query *specifically* benefits from its unique interaction style or demands exceptional refinement AND 'B' is clearly inadequate.",
+    "C": "(Model C: High Quality, Polished & Empathetic) Use for tasks requiring highly polished, empathetic, or very human-like conversational interactions; complex multi-turn instruction adherence where its specific stylistic strengths are key; creative content generation with a defined sophisticated tone. HIGHER COST. CHOOSE ONLY if query *specifically* benefits from its unique interaction style or demands exceptional refinement AND 'B' (if available) is clearly inadequate.",
     "D": "(Model D: Cost-Effective Factual & Technical) Use for factual Q&A; code generation/explanation/debugging; data extraction; straightforward logical reasoning; technical or scientific queries. LOW COST. CHOOSE for tasks that are well-defined, benefit from specialized reasoning, and do not require broad world knowledge, deep creativity, or nuanced conversation. Very slow responses. Prefer over B for these specific tasks if cost is a factor.",
     "F": "(Model F: Fast & Economical for Simple Tasks) Use for very quick, simple Q&A; fast summarization of short texts; basic classification; brief translations; or when speed is paramount and task complexity is very low. LOWEST COST. Default starting point for most simple requests."
 }
@@ -122,18 +122,18 @@ def format_token_count(num):
 
 # --------------------- Quota Management (Revised) ------------------------
 _g_quota_data = None
-_g_quota_data_last_refreshed_stamps = {"d": None, "m": None} 
+_g_quota_data_last_refreshed_stamps = {"d": None, "m": None}
 
 USAGE_KEYS_PERIODIC = ["d_u", "m_u", "d_it_u", "m_it_u", "d_ot_u", "m_ot_u"]
 MODEL_A_3H_CALLS_KEY = "model_A_3h_calls"
 
 def _reset(block: dict, period_prefix: str, current_stamp: str, model_keys_zeros: dict) -> bool:
     data_changed = False
-    period_stamp_key = period_prefix 
-    
+    period_stamp_key = period_prefix
+
     if block.get(period_stamp_key) != current_stamp:
         block[period_stamp_key] = current_stamp
-        for usage_type_suffix in ["_u", "_it_u", "_ot_u"]: 
+        for usage_type_suffix in ["_u", "_it_u", "_ot_u"]:
             usage_dict_key = f"{period_prefix}{usage_type_suffix}"
             block[usage_dict_key] = model_keys_zeros.copy()
         data_changed = True
@@ -168,6 +168,7 @@ def _ensure_quota_data_is_current():
         logging.info(f"Quota period change detected. Refreshing quota data.")
 
     if not needs_full_refresh_logic:
+        # Prune 3-hour calls even without a full reset
         if MODEL_A_3H_CALLS_KEY in _g_quota_data and "A" in NEW_PLAN_CONFIG and NEW_PLAN_CONFIG["A"][7] > 0:
             _, _, _, _, _, _, _, three_hr_window_seconds = NEW_PLAN_CONFIG["A"]
             current_time = time.time()
@@ -178,37 +179,46 @@ def _ensure_quota_data_is_current():
             ]
             if len(_g_quota_data[MODEL_A_3H_CALLS_KEY]) != original_len:
                 logging.info(f"Pruned Model A 3-hour call timestamps. Original: {original_len}, New: {len(_g_quota_data[MODEL_A_3H_CALLS_KEY])}.")
+                _save(QUOTA_FILE, _g_quota_data) # Save if pruned
         return _g_quota_data
 
     q_loaded_data = _load(QUOTA_FILE, {})
-    data_was_modified = _g_quota_data is None 
-    
+    data_was_modified = _g_quota_data is None
+
     active_model_keys = set(MODEL_MAP.keys())
     cleaned_during_load = False
 
-    for usage_key_template in USAGE_KEYS_PERIODIC: 
+    for usage_key_template in USAGE_KEYS_PERIODIC:
         if usage_key_template in q_loaded_data:
             current_period_usage_dict = q_loaded_data[usage_key_template]
-            keys_in_usage = list(current_period_usage_dict.keys()) 
+            keys_in_usage = list(current_period_usage_dict.keys())
             for model_key_in_usage in keys_in_usage:
                 if model_key_in_usage not in active_model_keys:
                     try:
                         del current_period_usage_dict[model_key_in_usage]
                         logging.info(f"Removed obsolete model key '{model_key_in_usage}' from quota usage '{usage_key_template}'.")
                         cleaned_during_load = True
-                    except KeyError: pass 
+                    except KeyError: pass
     if cleaned_during_load: data_was_modified = True
 
-    if "w" in q_loaded_data: del q_loaded_data["w"]; data_was_modified = True; logging.info("Removed obsolete 'w' field from quota data.")
-    if "w_u" in q_loaded_data: del q_loaded_data["w_u"]; data_was_modified = True; logging.info("Removed obsolete 'w_u' field from quota data.")
+    # Remove obsolete fields (weekly)
+    obsolete_keys = ["w", "w_u"]
+    for key in obsolete_keys:
+        if key in q_loaded_data:
+            del q_loaded_data[key]
+            data_was_modified = True
+            logging.info(f"Removed obsolete key '{key}' from quota data.")
+
 
     current_model_zeros = {k: 0 for k in MODEL_MAP.keys()}
     reset_occurred_d = _reset(q_loaded_data, "d", now_d_stamp, current_model_zeros)
     reset_occurred_m = _reset(q_loaded_data, "m", now_m_stamp, current_model_zeros)
     if reset_occurred_d or reset_occurred_m: data_was_modified = True
 
+    # Initialize or prune 3-hour calls for Model A
     if MODEL_A_3H_CALLS_KEY not in q_loaded_data:
         q_loaded_data[MODEL_A_3H_CALLS_KEY] = []
+        data_was_modified = True # Initializing counts as modification
     if "A" in NEW_PLAN_CONFIG and NEW_PLAN_CONFIG["A"][7] > 0:
         _, _, _, _, _, _, _, three_hr_window_seconds = NEW_PLAN_CONFIG["A"]
         current_time = time.time()
@@ -221,13 +231,15 @@ def _ensure_quota_data_is_current():
              logging.info(f"Pruned Model A 3-hour call timestamps during full refresh. Original: {original_len}, New: {len(q_loaded_data[MODEL_A_3H_CALLS_KEY])}.")
              data_was_modified = True
 
+
     if data_was_modified:
         _save(QUOTA_FILE, q_loaded_data)
         logging.info("Quota data was modified (loaded/cleaned/reset/pruned) and saved to disk.")
-    
+
     _g_quota_data = q_loaded_data
     _g_quota_data_last_refreshed_stamps = {"d": now_d_stamp, "m": now_m_stamp}
     return _g_quota_data
+
 
 def get_quota_usage_and_limits(model_key: str):
     if model_key not in NEW_PLAN_CONFIG:
@@ -236,7 +248,7 @@ def get_quota_usage_and_limits(model_key: str):
 
     current_q_data = _ensure_quota_data_is_current()
     plan = NEW_PLAN_CONFIG[model_key]
-    
+
     limits = {
         "limit_daily_msg": plan[0], "limit_monthly_msg": plan[1],
         "limit_daily_in_tokens": plan[2], "limit_monthly_in_tokens": plan[3],
@@ -254,8 +266,16 @@ def get_quota_usage_and_limits(model_key: str):
         "used_3hr_msg": 0
     }
 
-    if model_key == "A" and plan[6] > 0: 
-        usage["used_3hr_msg"] = len(current_q_data.get(MODEL_A_3H_CALLS_KEY, []))
+    if model_key == "A" and plan[6] > 0:
+        # Check count within the current 3-hour window
+        current_time = time.time()
+        three_hr_window_seconds = plan[7]
+        recent_calls = [
+            ts for ts in current_q_data.get(MODEL_A_3H_CALLS_KEY, [])
+            if current_time - ts < three_hr_window_seconds
+        ]
+        usage["used_3hr_msg"] = len(recent_calls)
+
 
     return {**usage, **limits}
 
@@ -265,7 +285,7 @@ def is_model_available(model_key: str) -> bool:
         return False
 
     stats = get_quota_usage_and_limits(model_key)
-    if not stats: return False
+    if not stats: return False # Should not happen if key is in NEW_PLAN_CONFIG
 
     if stats["used_daily_msg"] >= stats["limit_daily_msg"]: return False
     if stats["used_monthly_msg"] >= stats["limit_monthly_msg"]: return False
@@ -273,10 +293,10 @@ def is_model_available(model_key: str) -> bool:
     if stats["used_monthly_in_tokens"] >= stats["limit_monthly_in_tokens"]: return False
     if stats["used_daily_out_tokens"] >= stats["limit_daily_out_tokens"]: return False
     if stats["used_monthly_out_tokens"] >= stats["limit_monthly_out_tokens"]: return False
-    
-    if model_key == "A" and stats["limit_3hr_msg"] != float('inf'): 
+
+    if model_key == "A" and stats["limit_3hr_msg"] != float('inf'):
         if stats["used_3hr_msg"] >= stats["limit_3hr_msg"]: return False
-            
+
     return True
 
 def get_remaining_daily_messages(model_key: str) -> int:
@@ -286,32 +306,43 @@ def get_remaining_daily_messages(model_key: str) -> int:
     return max(0, stats["limit_daily_msg"] - stats["used_daily_msg"])
 
 def record_use(model_key: str, prompt_tokens: int, completion_tokens: int):
-    if model_key not in MODEL_MAP: 
+    if model_key not in MODEL_MAP:
         logging.warning(f"Attempted to record usage for non-standard or unknown model key: {model_key}")
         return
 
-    current_q_data = _ensure_quota_data_is_current() 
+    current_q_data = _ensure_quota_data_is_current()
 
-    current_q_data.setdefault("d_u", {}).setdefault(model_key, 0)
+    # Ensure keys exist with default values if not present
+    current_q_data.setdefault("d_u", {})
+    current_q_data["d_u"].setdefault(model_key, 0)
+    current_q_data.setdefault("m_u", {})
+    current_q_data["m_u"].setdefault(model_key, 0)
+
+    current_q_data.setdefault("d_it_u", {})
+    current_q_data["d_it_u"].setdefault(model_key, 0)
+    current_q_data.setdefault("m_it_u", {})
+    current_q_data["m_it_u"].setdefault(model_key, 0)
+
+    current_q_data.setdefault("d_ot_u", {})
+    current_q_data["d_ot_u"].setdefault(model_key, 0)
+    current_q_data.setdefault("m_ot_u", {})
+    current_q_data["m_ot_u"].setdefault(model_key, 0)
+
+    # Increment usage
     current_q_data["d_u"][model_key] += 1
-    current_q_data.setdefault("m_u", {}).setdefault(model_key, 0)
     current_q_data["m_u"][model_key] += 1
-
-    current_q_data.setdefault("d_it_u", {}).setdefault(model_key, 0)
     current_q_data["d_it_u"][model_key] += prompt_tokens
-    current_q_data.setdefault("m_it_u", {}).setdefault(model_key, 0)
     current_q_data["m_it_u"][model_key] += prompt_tokens
-
-    current_q_data.setdefault("d_ot_u", {}).setdefault(model_key, 0)
     current_q_data["d_ot_u"][model_key] += completion_tokens
-    current_q_data.setdefault("m_ot_u", {}).setdefault(model_key, 0)
     current_q_data["m_ot_u"][model_key] += completion_tokens
 
+    # Record timestamp for Model A 3-hour limit if applicable
     if model_key == "A" and NEW_PLAN_CONFIG["A"][6] > 0:
         current_q_data.setdefault(MODEL_A_3H_CALLS_KEY, []).append(time.time())
 
     _save(QUOTA_FILE, current_q_data)
     logging.info(f"Recorded usage for model '{model_key}': 1 msg, {prompt_tokens}p, {completion_tokens}c tokens. Quotas saved.")
+
 
 # --------------------- Session Management -----------------------
 def _delete_unused_blank_sessions(keep_sid: str = None):
@@ -331,10 +362,13 @@ def _delete_unused_blank_sessions(keep_sid: str = None):
 sessions = _load(SESS_FILE, {})
 
 def _new_sid():
-    _delete_unused_blank_sessions(keep_sid=None)
+    # Note: _delete_unused_blank_sessions should ideally be called BEFORE generating a new sid
+    # if the goal is to clean up *before* creating the new one, but it's harmless here too.
     sid = str(int(time.time() * 1000))
     sessions[sid] = {"title": "New chat", "messages": []}
+    _delete_unused_blank_sessions(keep_sid=sid) # Clean up *other* blank sessions
     return sid
+
 
 def _autoname(seed: str) -> str:
     words = seed.strip().split()
@@ -342,7 +376,10 @@ def _autoname(seed: str) -> str:
     return (cand[:25] + "…") if len(cand) > 25 else cand
 
 # --------------------------- Logging ----------------------------
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", stream=sys.stdout)
+# Ensure basic logging is configured early
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", stream=sys.stdout)
+
 def is_api_key_valid(api_key_value):
     return api_key_value and isinstance(api_key_value, str) and api_key_value.startswith("sk-or-")
 
@@ -353,7 +390,12 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
         st.session_state.api_key_auth_failed = True
         raise ValueError("OpenRouter API Key is not set or syntactically invalid. Configure in Settings.")
     headers = {"Authorization": f"Bearer {active_api_key}", "Content-Type":  "application/json"}
-    logging.info(f"POST /chat/completions -> model={payload.get('model')}, stream={stream}, max_tokens={payload.get('max_tokens')}")
+
+    # --- DEBUG LOGGING FOR API POST ---
+    # This log is less useful than the st.expander in the main loop
+    # logging.info(f"POST /chat/completions -> model={payload.get('model')}, stream={stream}, max_tokens={payload.get('max_tokens')}")
+    # --- END DEBUG LOGGING ---
+
     try:
         response = requests.post(f"{OPENROUTER_API_BASE}/chat/completions", headers=headers, json=payload, stream=stream, timeout=timeout)
         response.raise_for_status()
@@ -366,8 +408,10 @@ def api_post(payload: dict, *, stream: bool=False, timeout: int=DEFAULT_TIMEOUT)
         raise
 
 def streamed(model: str, messages: list, max_tokens_out: int):
+    # Note: Debugging the 'messages' passed to streamed is better done
+    # just *before* calling this function in the main loop using st.expander.
     payload = {"model": model, "messages": messages, "stream": True, "max_tokens": max_tokens_out}
-    st.session_state.pop("last_stream_usage", None) 
+    st.session_state.pop("last_stream_usage", None)
 
     try:
         with api_post(payload, stream=True) as r:
@@ -383,18 +427,19 @@ def streamed(model: str, messages: list, max_tokens_out: int):
                     chunk = json.loads(data)
                 except json.JSONDecodeError:
                     logging.error(f"Bad JSON chunk: {data}"); yield None, "Error decoding response chunk"; return
-                
+
                 if "error" in chunk:
                     msg = chunk["error"].get("message", "Unknown API error")
                     logging.error(f"API chunk error: {msg}"); yield None, msg; return
 
                 if "usage" in chunk and chunk["usage"] is not None:
+                    # Capture the last usage chunk received (often the final one)
                     st.session_state.last_stream_usage = chunk["usage"]
-                    logging.info(f"Captured stream usage: {chunk['usage']}")
+                    # logging.info(f"Captured stream usage chunk: {chunk['usage']}") # This can be noisy, moved final log to main loop
 
                 delta = chunk["choices"][0]["delta"].get("content")
                 if delta is not None: yield delta, None
-    except ValueError as ve: 
+    except ValueError as ve:
         logging.error(f"ValueError during streamed call setup: {ve}"); yield None, str(ve)
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code; text = e.response.text
@@ -407,29 +452,35 @@ def streamed(model: str, messages: list, max_tokens_out: int):
 def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
     if "F" in allowed: fallback_choice_letter = "F"
     elif allowed: fallback_choice_letter = allowed[0]
-    elif "F" in MODEL_MAP: fallback_choice_letter = "F" 
+    elif "F" in MODEL_MAP: fallback_choice_letter = "F"
     elif MODEL_MAP: fallback_choice_letter = list(MODEL_MAP.keys())[0]
-    else: 
+    else:
         logging.error("Router: No models available in MODEL_MAP for fallback. Using FALLBACK_MODEL_KEY.")
         return FALLBACK_MODEL_KEY
 
-    if not allowed: 
+    if not allowed:
         logging.warning(f"route_choice called with empty allowed list. Defaulting to FALLBACK_MODEL_KEY.")
-        return FALLBACK_MODEL_KEY 
+        return FALLBACK_MODEL_KEY
     if len(allowed) == 1:
         logging.info(f"Router: Only one model allowed ('{allowed[0]}'), selecting it directly.")
         return allowed[0]
 
     history_segments = []
     current_chars = 0
-    relevant_history_for_router = chat_history[:-1] 
+    # Router only needs history *before* the current user message
+    relevant_history_for_router = chat_history[:-1] # Exclude the latest user prompt added just before calling route_choice
     for msg in reversed(relevant_history_for_router):
-        role = msg.get("role", "assistant").capitalize() 
+        role = msg.get("role", "assistant").capitalize()
         content = msg.get("content", "")
-        segment = f"{role}: {content}\n" 
+        # Ensure content is string before checking length
+        if not isinstance(content, str): content = str(content)
+
+        # Add role and content, plus newline separators
+        segment = f"{role}: {content}\n"
         if current_chars + len(segment) > MAX_HISTORY_CHARS_FOR_ROUTER: break
         history_segments.append(segment)
         current_chars += len(segment)
+
     history_context_str = "".join(reversed(history_segments)).strip()
     if not history_context_str: history_context_str = "No prior conversation history for this session."
 
@@ -461,23 +512,41 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
     router_messages = [{"role": "system", "content": final_system_message}, {"role": "user", "content": user_msg}]
     payload_r = {"model": ROUTER_MODEL_ID, "messages": router_messages, "max_tokens": 10, "temperature": 0.1}
 
+    # --- START DEBUG SECTION FOR ROUTER PAYLOAD (VERBOSE) ---
+    # This shows the full prompt sent to the router model.
+    # Keep commented out unless you specifically need to debug the router prompt itself.
+    # with st.expander("DEBUG (VERBOSE): Router Model Call Payload", expanded=False):
+    #     st.subheader(f"Payload for ROUTER_MODEL_ID ({ROUTER_MODEL_ID})")
+    #     st.json(payload_r)
+    # --- END DEBUG SECTION FOR ROUTER PAYLOAD ---
+
+
     try:
         r = api_post(payload_r)
         choice_data = r.json()
         raw_text_response = choice_data.get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
         logging.info(f"Router raw response: '{raw_text_response}' for query: '{user_msg}' with history context.")
-        
+
         chosen_model_letter = None
+        # Find the first character in the response that is in the allowed list
         for char_in_response in raw_text_response:
             if char_in_response in allowed:
                 chosen_model_letter = char_in_response; break
+        
+        # If no allowed letter was found, check for the fallback explicitly chosen by the router
+        # This part is slightly redundant if FALLBACK_MODEL_KEY is not in allowed,
+        # but good for clarity if the router somehow outputs it.
+        # Given the prompt asks for only A-F, this check is probably not needed.
+        # elif raw_text_response == FALLBACK_MODEL_KEY:
+        #    chosen_model_letter = FALLBACK_MODEL_KEY
+
         if chosen_model_letter:
             logging.info(f"Router selected model: '{chosen_model_letter}'")
             return chosen_model_letter
-        else: 
+        else:
             logging.warning(f"Router returned ('{raw_text_response}') - no allowed letter found. Fallback to '{fallback_choice_letter}'.")
-            return fallback_choice_letter 
-    except ValueError as ve: logging.error(f"ValueError in router call: {ve}") 
+            return fallback_choice_letter
+    except ValueError as ve: logging.error(f"ValueError in router call: {ve}")
     except requests.exceptions.HTTPError as e: logging.error(f"Router HTTPError {e.response.status_code}: {e.response.text}")
     except (KeyError, IndexError, AttributeError, json.JSONDecodeError) as je:
         response_text_for_log = r.text if 'r' in locals() and hasattr(r, 'text') else "N/A"
@@ -485,7 +554,7 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
     except Exception as e: logging.error(f"Router unexpected error: {e}")
 
     logging.warning(f"Router failed. Fallback to model letter: {fallback_choice_letter}")
-    return fallback_choice_letter 
+    return fallback_choice_letter
 
 # --------------------- Credits Endpoint -----------------------
 def get_credits():
@@ -515,7 +584,7 @@ def load_custom_css():
             /* Core Colors */
             --app-bg-color: rgb(250, 249, 245);
             --app-secondary-bg-color: #F0F2F6; /* Streamlit's default light secondary, or try rgb(242, 240, 237) for closer match */
-            --app-text-color: #0F1116; 
+            --app-text-color: #0F1116;
             --app-text-secondary-color: #5E6572;
             --app-primary-color: #0072C6; /* A generic nice blue, change as needed */
             --app-divider-color: #E0E0E0;
@@ -529,7 +598,7 @@ def load_custom_css():
             /* Font */
             --app-font: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
         }}
-        
+
         body {{
             font-family: var(--app-font) !important;
             background-color: var(--app-bg-color) !important;
@@ -655,11 +724,11 @@ def load_custom_css():
              font-weight: 600 !important;
         }}
         .settings-panel hr {{ border-top: 1px solid var(--app-divider-color); margin-top:0.5rem; margin-bottom:0.8rem;}}
-        .detailed-quota-modelname {{ 
-            font-weight: 600; 
-            font-size: 1.05em; 
-            margin-bottom: 0.3rem; 
-            display:block; 
+        .detailed-quota-modelname {{
+            font-weight: 600;
+            font-size: 1.05em;
+            margin-bottom: 0.3rem;
+            display:block;
             color: var(--app-primary-color);
         }}
         .detailed-quota-block {{ font-size: 0.87rem; line-height: 1.6; }}
@@ -693,8 +762,35 @@ def load_custom_css():
             background-color: var(--app-secondary-bg-color);
             color: var(--app-text-color);
             margin-right: auto; border-top-left-radius: var(--border-radius-sm);
-            border: 1px solid var(--app-divider-color); 
+            border: 1px solid var(--app-divider-color);
         }}
+        /* Styling for DEBUG expanders */
+        [data-testid^="stExpander-DEBUG"] {{
+            border: 1px dashed #FF9800; /* Orange dashed border */
+            margin-top: var(--spacing-md);
+            margin-bottom: var(--spacing-md);
+            background-color: color-mix(in srgb, #FF9800 10%, var(--app-bg-color)); /* Light orange background */
+        }}
+        [data-testid^="stExpander-DEBUG"] summary {{
+            color: #E65100 !important; /* Darker orange text */
+            font-weight: bold !important;
+        }}
+        [data-testid^="stExpander-DEBUG"] div[data-testid="stExpanderDetails"] {{
+             background-color: color-mix(in srgb, #FF9800 5%, var(--app-bg-color)); /* Lighter orange */
+        }}
+        [data-testid^="stExpander-DEBUG"] .stSubheader {{
+            color: #E65100 !important; /* Darker orange for subheaders */
+        }}
+        [data-testid^="stExpander-DEBUG"] .stJson, [data-testid^="stExpander-DEBUG"] .stText {{
+            font-size: 0.85rem;
+            /* Optional: Add light border/padding to make JSON/text boxes distinct */
+            border: 1px solid #FFB74D;
+            padding: var(--spacing-sm);
+            border-radius: var(--border-radius-sm);
+            background-color: var(--app-bg-color);
+            margin-bottom: var(--spacing-sm);
+        }}
+
 
         hr.main-hr {{ /* Main content area hr, if needed */
             margin-top: var(--spacing-md); margin-bottom: var(--spacing-md);
@@ -715,14 +811,15 @@ if "openrouter_api_key" not in st.session_state:
     st.session_state.openrouter_api_key = app_conf.get("openrouter_api_key", None)
 if "api_key_auth_failed" not in st.session_state: st.session_state.api_key_auth_failed = False
 api_key_is_syntactically_valid = is_api_key_valid(st.session_state.get("openrouter_api_key"))
-app_requires_api_key_setup = not api_key_is_syntactically_valid or st.session_state.api_key_auth_failed
+app_requires_api_key_setup = not api_key_is_syntactically_valid or st.session_state.get("api_key_auth_failed", False)
 
 # -------------------- Main Application Rendering -------------------
 if app_requires_api_key_setup:
     st.set_page_config(page_title="OpenRouter API Key Setup", layout="centered")
     load_custom_css() # Load CSS even for setup page for consistency if any elements are shared
-    st.title("🔒 OpenRouter API Key Required"); st.markdown("---", help="A horizontal rule") # Using help as a way to add class, not ideal
-    if st.session_state.api_key_auth_failed: st.error("API Key Authentication Failed. Please verify your key on OpenRouter.ai and re-enter.")
+    st.title("🔒 OpenRouter API Key Required")
+    st.markdown("---", unsafe_allow_html=True) # Using HTML markdown for consistency
+    if st.session_state.get("api_key_auth_failed"): st.error("API Key Authentication Failed. Please verify your key on OpenRouter.ai and re-enter.")
     elif not api_key_is_syntactically_valid and st.session_state.get("openrouter_api_key") is not None: st.error("The previously configured API Key has an invalid format. It must start with `sk-or-`.")
     else: st.info("Please configure your OpenRouter API Key to use the application.")
     st.markdown( "You can get a key from [OpenRouter.ai Keys](https://openrouter.ai/keys). Enter it below to continue." )
@@ -732,7 +829,7 @@ if app_requires_api_key_setup:
             st.session_state.openrouter_api_key = new_key_input_val
             _save_app_config(new_key_input_val); st.session_state.api_key_auth_failed = False
             with st.spinner("Validating API Key..."): fetched_credits_data = get_credits()
-            if st.session_state.api_key_auth_failed: st.error("Authentication failed with the provided API Key."); time.sleep(0.5); st.rerun()
+            if st.session_state.get("api_key_auth_failed"): st.error("Authentication failed with the provided API Key."); time.sleep(0.5); st.rerun()
             elif fetched_credits_data == (None, None, None): st.error("Could not validate API Key. Network or API provider issue.")
             else:
                 st.success("API Key saved and validated! Initializing application...")
@@ -741,7 +838,7 @@ if app_requires_api_key_setup:
                 st.session_state.credits_ts = time.time(); time.sleep(1.0); st.rerun()
         elif not new_key_input_val: st.warning("API Key field cannot be empty.")
         else: st.error("Invalid API key format. It must start with 'sk-or-'.")
-    st.markdown("---"); st.caption("Your API key is stored locally in `app_config.json`.")
+    st.markdown("---", unsafe_allow_html=True); st.caption("Your API key is stored locally in `app_config.json`.")
 else:
     st.set_page_config(page_title="OpenRouter Chat", layout="wide", initial_sidebar_state="expanded")
     load_custom_css()
@@ -750,30 +847,32 @@ else:
     if "sid" not in st.session_state: st.session_state.sid = _new_sid(); needs_save_session = True
     elif st.session_state.sid not in sessions:
         logging.warning(f"Session ID {st.session_state.sid} not found. Creating new chat."); st.session_state.sid = _new_sid(); needs_save_session = True
-    if _delete_unused_blank_sessions(keep_sid=st.session_state.sid): needs_save_session = True
+    # _delete_unused_blank_sessions(keep_sid=st.session_state.sid) # Moved this into _new_sid
     if needs_save_session: _save(SESS_FILE, sessions); st.rerun()
 
     if "credits" not in st.session_state: st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0}; st.session_state.credits_ts = 0
+    # Fetch credits if stale (older than 1 hour) or if they are still the default zeros after a few seconds
     credits_are_stale = time.time() - st.session_state.get("credits_ts", 0) > 3600
-    credits_are_default_and_old = (st.session_state.credits.get("total") == 0.0 and st.session_state.credits.get("used") == 0.0 and st.session_state.credits.get("remaining") == 0.0 and st.session_state.credits_ts != 0 and time.time() - st.session_state.credits_ts > 300)
-    credits_never_fetched = st.session_state.credits_ts == 0
+    credits_are_default_and_old = (st.session_state.credits.get("total") == 0.0 and st.session_state.credits.get("used") == 0.0 and st.session_state.credits.get("remaining") == 0.0 and st.session_state.get("credits_ts", 0) != 0 and time.time() - st.session_state.get("credits_ts", 0) > 10) # Reduced delay for quicker first fetch
+    credits_never_fetched = st.session_state.get("credits_ts", 0) == 0
     if credits_are_stale or credits_are_default_and_old or credits_never_fetched:
-        logging.info("Refreshing credits (stale, default, or never fetched).")
+        logging.info("Refreshing credits (stale, default/old, or never fetched).")
         credits_data = get_credits()
         if st.session_state.get("api_key_auth_failed"): logging.error("API Key auth failed during credit refresh.")
         if credits_data != (None, None, None):
             st.session_state.credits["total"], st.session_state.credits["used"], st.session_state.credits["remaining"] = credits_data
             st.session_state.credits_ts = time.time()
         else:
-            st.session_state.credits_ts = time.time()
-            if not all(isinstance(st.session_state.credits.get(k), (int,float)) for k in ["total", "used", "remaining"]):
-                 st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0}
+             # If fetch fails, still update timestamp to avoid immediate re-fetch loops
+             st.session_state.credits_ts = time.time()
+             if not all(isinstance(st.session_state.credits.get(k), (int,float)) for k in ["total", "used", "remaining"]):
+                  st.session_state.credits = {"total": 0.0, "used": 0.0, "remaining": 0.0} # Ensure default state if fetch fails
 
     with st.sidebar:
         settings_button_label = "⚙️ Close Settings" if st.session_state.settings_panel_open else "⚙️ Settings"
         if st.button(settings_button_label, key="toggle_settings_button_sidebar", use_container_width=True):
             st.session_state.settings_panel_open = not st.session_state.settings_panel_open; st.rerun()
-        
+
         if st.session_state.get("settings_panel_open"):
             st.markdown("<div class='settings-panel'>", unsafe_allow_html=True)
             st.subheader("🔑 API Key Configuration")
@@ -788,7 +887,7 @@ else:
                     st.session_state.openrouter_api_key = new_key_input_sidebar
                     _save_app_config(new_key_input_sidebar); st.session_state.api_key_auth_failed = False
                     with st.spinner("Validating new API key..."): credits_data = get_credits()
-                    if st.session_state.api_key_auth_failed: st.error("New API Key failed authentication.")
+                    if st.session_state.get("api_key_auth_failed"): st.error("New API Key failed authentication.")
                     elif credits_data == (None,None,None): st.warning("Could not validate new API key. Saved, but functionality may be affected.")
                     else:
                         st.success("New API Key saved and validated!")
@@ -798,20 +897,19 @@ else:
                     time.sleep(0.8); st.rerun()
                 elif not new_key_input_sidebar: st.warning("API Key field empty. No changes.")
                 else: st.error("Invalid API key format. Must start with 'sk-or-'.")
-            
+
             st.markdown("<hr>", unsafe_allow_html=True)
             st.subheader("📊 Detailed Model Quotas")
-            _ensure_quota_data_is_current() 
+            _ensure_quota_data_is_current()
 
-            for m_key_loop in sorted(MODEL_MAP.keys()):
-                if m_key_loop not in NEW_PLAN_CONFIG:
-                    continue
+            for m_key_loop in sorted(NEW_PLAN_CONFIG.keys()): # Iterate only through keys in NEW_PLAN_CONFIG
+                if m_key_loop not in MODEL_MAP: continue # Skip if model key is in config but not MODEL_MAP (shouldn't happen with current config)
 
                 stats = get_quota_usage_and_limits(m_key_loop)
                 if not stats:
                     st.markdown(f"**{EMOJI.get(m_key_loop, '')} {m_key_loop} ({MODEL_MAP[m_key_loop].split('/')[-1]})**: Could not retrieve quota details.")
                     continue
-                
+
                 model_short_name = MODEL_DESCRIPTIONS.get(m_key_loop, "").split('(')[1].split(')')[0] if '(' in MODEL_DESCRIPTIONS.get(m_key_loop, "") else MODEL_MAP[m_key_loop].split('/')[-1]
                 model_name_display = f"{EMOJI.get(m_key_loop, '')} <span class='detailed-quota-modelname'>{m_key_loop} ({model_short_name})</span>"
                 st.markdown(f"{model_name_display}", unsafe_allow_html=True)
@@ -840,33 +938,23 @@ else:
 
                 if m_key_loop == "A" and stats["limit_3hr_msg"] != float('inf'):
                     time_until_next_msg_str = ""
-                    if stats['used_3hr_msg'] >= stats['limit_3hr_msg']:
-                        call_timestamps = sorted(_g_quota_data.get(MODEL_A_3H_CALLS_KEY, []))
-                        if len(call_timestamps) >= stats['limit_3hr_msg']:
-                            # The relevant timestamp is the (limit_3hr_msg)th from the end of the sorted list.
-                            # e.g. limit 3, calls [ts1, ts2, ts3, ts4, ts5]. We care about ts3.
-                            # oldest_blocking_call_ts = call_timestamps[-(int(stats['limit_3hr_msg']))]
-                            # Correct logic: if 5 calls and limit 3, the window is [ts3,ts4,ts5]. ts3 is oldest.
-                            # So it's call_timestamps[len - limit] if len >= limit
-                            # A simpler way: get all calls in the window, sort them, pick the oldest.
-                            # Pruning in _ensure_quota_data_is_current already keeps only calls within the window.
-                            # So, if used_3hr_msg >= limit_3hr_msg, the oldest call in current _g_quota_data[MODEL_A_3H_CALLS_KEY]
-                            # is the one that determines when the next slot opens up.
-                            
-                            # Get currently active calls for model A (already pruned)
-                            active_model_a_calls = _g_quota_data.get(MODEL_A_3H_CALLS_KEY, [])
-                            if active_model_a_calls: # Should be true if used_3hr_msg > 0
-                                oldest_blocking_call_ts = min(active_model_a_calls) # oldest in the current window
-                                expiry_time = oldest_blocking_call_ts + NEW_PLAN_CONFIG["A"][7] # 3hr_window_seconds
-                                time_remaining_seconds = expiry_time - time.time()
-                                if time_remaining_seconds > 0:
-                                    mins, secs = divmod(int(time_remaining_seconds), 60)
-                                    hrs, mins_rem = divmod(mins, 60)
-                                    if hrs > 0:
-                                        time_until_next_msg_str = f" (Next in {hrs}h {mins_rem}m)"
-                                    else:
-                                        time_until_next_msg_str = f" (Next in {mins_rem}m {secs}s)"
-                    
+                    # Need to get the oldest timestamp that will expire *after* the current time
+                    # from the list of calls within the window.
+                    active_model_a_calls = sorted(_g_quota_data.get(MODEL_A_3H_CALLS_KEY, []))
+                    if len(active_model_a_calls) >= stats['limit_3hr_msg']:
+                         # The oldest call timestamp in the current list determines the next availability
+                         oldest_blocking_call_ts = active_model_a_calls[0]
+                         expiry_time = oldest_blocking_call_ts + NEW_PLAN_CONFIG["A"][7] # 3hr_window_seconds
+                         time_remaining_seconds = expiry_time - time.time()
+                         if time_remaining_seconds > 0:
+                            mins, secs = divmod(int(time_remaining_seconds), 60)
+                            hrs, mins_rem = divmod(mins, 60)
+                            if hrs > 0:
+                                time_until_next_msg_str = f" (Next in {hrs}h {mins_rem}m)"
+                            else:
+                                time_until_next_msg_str = f" (Next in {mins_rem}m {secs}s)"
+
+
                     st.markdown(f"""
                     <div class="detailed-quota-block" style="margin-top: -0.5rem; margin-left:0.1rem;"> <!-- Full width for this one -->
                     <ul>
@@ -883,34 +971,45 @@ else:
         st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
 
         with st.expander("⚡ DAILY MODEL QUOTAS", expanded=True):
-            active_model_keys_for_display = sorted(MODEL_MAP.keys())
+            # Only display models that are in MODEL_MAP AND NEW_PLAN_CONFIG
+            active_model_keys_for_display = sorted([k for k in MODEL_MAP if k in NEW_PLAN_CONFIG])
             if not active_model_keys_for_display: st.caption("No models configured for quota tracking.")
             else:
-                _ensure_quota_data_is_current() 
-                quota_cols = st.columns(len(active_model_keys_for_display))
+                _ensure_quota_data_is_current()
+                # Create columns dynamically, ensure there's at least one if keys exist
+                if active_model_keys_for_display:
+                    quota_cols = st.columns(len(active_model_keys_for_display))
+                else:
+                    quota_cols = [st.container()] # Use a single container if no keys
+
                 for i, m_key in enumerate(active_model_keys_for_display):
                     with quota_cols[i]:
                         left_d_msgs = get_remaining_daily_messages(m_key)
                         lim_d_msgs = NEW_PLAN_CONFIG.get(m_key, (0,))[0]
-                        
-                        # Assuming all limits are finite now based on NEW_PLAN_CONFIG
+
+                        # Assuming all limits are finite now based on NEW_PLAN_CONFIG,
+                        # but handle the case of limit being zero to avoid division by zero
                         if lim_d_msgs > 0:
                             pct_float = max(0.0, min(1.0, left_d_msgs / lim_d_msgs))
                             fill_width_val = int(pct_float * 100)
                             left_display = str(left_d_msgs)
-                        else: 
-                            pct_float, fill_width_val, left_display = 0.0, 0, "0"
-                        
-                        bar_color = "#f44336" 
-                        if pct_float > 0.5: bar_color = "#4caf50" 
-                        elif pct_float > 0.25: bar_color = "#ffc107" 
-                        
+                        else:
+                            # If limit is 0 or not in config (should be handled by outer loop)
+                            # or if stats lookup failed, display 0/0 or N/A
+                            pct_float, fill_width_val, left_display = 0.0, 0, "0" # Or "N/A" if preferred
+
+                        bar_color = "#f44336" # Red (low)
+                        if pct_float > 0.5: bar_color = "#4caf50" # Green (high)
+                        elif pct_float > 0.25: bar_color = "#ffc107" # Yellow (medium)
+
+
                         emoji_char = EMOJI.get(m_key, "❔")
                         st.markdown(f"""<div class="compact-quota-item"><div class="cq-info">{emoji_char} <b>{m_key}</b></div><div class="cq-bar-track"><div class="cq-bar-fill" style="width: {fill_width_val}%; background-color: {bar_color};"></div></div><div class="cq-value" style="color: {bar_color};">{left_display}</div></div>""", unsafe_allow_html=True)
         st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
         current_session_is_truly_blank = (st.session_state.sid in sessions and sessions[st.session_state.sid].get("title") == "New chat" and not sessions[st.session_state.sid].get("messages"))
         if st.button("➕ New chat", key="new_chat_button_top", use_container_width=True, disabled=current_session_is_truly_blank):
-            st.session_state.sid = _new_sid(); _delete_unused_blank_sessions(keep_sid=st.session_state.sid)
+            st.session_state.sid = _new_sid();
+            # _delete_unused_blank_sessions(keep_sid=st.session_state.sid) # Moved inside _new_sid
             _save(SESS_FILE, sessions); st.rerun()
         st.subheader("Chats")
         valid_sids = [s for s in sessions.keys() if isinstance(s, str) and s.isdigit()]
@@ -927,11 +1026,14 @@ else:
         st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
         st.subheader("Model-Routing Map")
         st.caption(f"Router: {ROUTER_MODEL_ID}")
-        with st.expander("Letters → Models", expanded=False): 
+        with st.expander("Letters → Models", expanded=False):
+            # Only show models in MODEL_MAP that are also in NEW_PLAN_CONFIG for clarity?
+            # Or show all in MODEL_MAP? Let's stick to MODEL_MAP for the map.
             for k_model in sorted(MODEL_MAP.keys()):
                 desc = MODEL_DESCRIPTIONS.get(k_model, MODEL_MAP.get(k_model, "N/A"))
                 max_tok = MAX_TOKENS.get(k_model, 0)
                 st.markdown(f"**{k_model}**: {desc} (max_out={max_tok:,})")
+            st.markdown(f"**{FALLBACK_MODEL_KEY}**: {FALLBACK_MODEL_EMOJI} {FALLBACK_MODEL_ID} (max_out={FALLBACK_MODEL_MAX_TOKENS:,}) - Used when all standard quotas exhausted or routing fails.")
         st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
         with st.expander("Account stats (credits)", expanded=False):
             if st.button("Refresh Credits", key="refresh_credits_button_sidebar"):
@@ -942,103 +1044,207 @@ else:
                         st.session_state.credits_ts = time.time(); st.success("Credits refreshed!")
                     else: st.warning("Could not refresh credits.")
                  else: st.error("API Key authentication failed. Cannot refresh credits.")
-                 st.rerun()
+                 st.rerun() # Rerun to update display immediately after refresh attempt
             tot, used, rem = st.session_state.credits.get("total"), st.session_state.credits.get("used"), st.session_state.credits.get("remaining")
-            if tot is None or used is None or rem is None : st.warning("Could not fetch/display credits.")
+            if tot is None or used is None or rem is None or st.session_state.get("api_key_auth_failed"):
+                 st.warning("Could not fetch/display credits.")
             else: st.markdown(f"**Remaining:** ${float(rem):.2f} cr"); st.markdown(f"**Used:** ${float(used):.2f} cr")
             ts = st.session_state.get("credits_ts", 0)
             last_updated_str = datetime.fromtimestamp(ts, TZ).strftime('%-d %b, %H:%M:%S') if ts else "N/A"
             st.caption(f"Last updated: {last_updated_str}")
 
+
     # ---- Main chat area ----
     if st.session_state.sid not in sessions:
         logging.error(f"CRITICAL: SID {st.session_state.sid} missing. Resetting."); st.session_state.sid = _new_sid()
-        _save(SESS_FILE, sessions); st.rerun(); st.stop()
+        _save(SESS_FILE, sessions); st.rerun(); # st.stop() - avoid stopping, just rerun
     current_sid = st.session_state.sid
-    chat_history = sessions[current_sid]["messages"]
+    chat_history = sessions[current_sid]["messages"] # This is the list used for conversation context
+
+    # Display existing messages
     for msg in chat_history:
         role = msg.get("role", "assistant"); avatar_char = "👤" if role == "user" else None
         if role == "assistant":
-            m_key = msg.get("model")
+            m_key = msg.get("model") # Use the stored model key
             if m_key == FALLBACK_MODEL_KEY: avatar_char = FALLBACK_MODEL_EMOJI
             elif m_key in EMOJI: avatar_char = EMOJI[m_key]
-            else: avatar_char = "🤖"
+            else: avatar_char = "🤖" # Default robot avatar
         with st.chat_message(role, avatar=avatar_char): st.markdown(msg.get("content", "*empty*"))
 
     if prompt := st.chat_input("Ask anything…", key=f"chat_input_{current_sid}"):
+        # Append user message to the current chat history BEFORE routing/calling API
         chat_history.append({"role":"user","content":prompt})
+        # Display the user message immediately
         with st.chat_message("user", avatar="👤"): st.markdown(prompt)
+
+        # --- START DEBUG SECTION 1 ---
+        with st.expander("DEBUG: State before Routing", expanded=False, icon="🐞"):
+            st.subheader("Current `chat_history` (sessions[current_sid]['messages'])")
+            st.caption("This is the history available to the router and the main model call.")
+            st.json(sessions[current_sid]["messages"]) # Should contain user prompt now
+            st.subheader("User Prompt Entered")
+            st.text(prompt)
+        # --- END DEBUG SECTION 1 ---
+
         if not is_api_key_valid(st.session_state.get("openrouter_api_key")) or st.session_state.get("api_key_auth_failed"):
             st.error("API Key not configured or failed. Set in ⚙️ Settings.")
-            if st.session_state.get("api_key_auth_failed"): time.sleep(0.5); st.rerun()
+            # Avoid immediate rerun on API error to let user read the message
+            # if st.session_state.get("api_key_auth_failed"): time.sleep(0.5); st.rerun() # Rerun only if API key setup is required
         else:
-            _ensure_quota_data_is_current() 
-            allowed_standard_models = [k for k in MODEL_MAP if is_model_available(k)] 
+            # Ensure quotas are current before routing
+            _ensure_quota_data_is_current()
+            allowed_standard_models = [k for k in MODEL_MAP if is_model_available(k)]
 
             use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (False, None, None, None, "🤖")
 
-            if not allowed_standard_models:
-                logging.info(f"All standard model quotas exhausted. Using fallback: {FALLBACK_MODEL_ID}")
-                st.info(f"{FALLBACK_MODEL_EMOJI} All model quotas exhausted. Using free fallback.")
+            # --- START DEBUG SECTION 2 ---
+            with st.expander("DEBUG: Input to `route_choice`", expanded=False, icon="🐞"):
+                 st.subheader("`chat_history` passed to `route_choice`")
+                 st.caption("Router uses a slice of this history for context, excluding the latest user message.")
+                 st.json(chat_history) # This is the full history including the latest user prompt
+                 st.subheader("`allowed_standard_models` passed to `route_choice`")
+                 st.json(allowed_standard_models)
+            # --- END DEBUG SECTION 2 ---
+
+            # Perform routing
+            routed_key_letter = route_choice(prompt, allowed_standard_models, chat_history)
+
+            # --- START DEBUG SECTION 3 ---
+            with st.expander("DEBUG: Output from `route_choice`", expanded=False, icon="🐞"):
+                st.subheader("`routed_key_letter` (Selected Model Key)")
+                st.text(routed_key_letter)
+            # --- END DEBUG SECTION 3 ---
+
+            # Determine final model based on routing result and availability
+            if st.session_state.get("api_key_auth_failed"):
+                # If API auth failed during routing itself
+                st.error("API Auth failed during model routing. Check Key in Settings.")
+                 # No model_id_to_use; will stop here and await user action
+            elif routed_key_letter == FALLBACK_MODEL_KEY:
+                logging.warning(f"Router chose FALLBACK_MODEL_KEY. Using free fallback: {FALLBACK_MODEL_ID}.")
+                st.warning(f"{FALLBACK_MODEL_EMOJI} Router determined no standard models suitable. Using free fallback.")
+                use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
+            elif routed_key_letter not in MODEL_MAP or not is_model_available(routed_key_letter):
+                # This case handles router returning invalid key or key for model that became unavailable just now
+                logging.warning(f"Router chose '{routed_key_letter}' (invalid key, not in map, or no quota/unavailable after check). Using free fallback {FALLBACK_MODEL_ID}.")
+                st.warning(f"{FALLBACK_MODEL_EMOJI} Model routing issue or chosen model '{routed_key_letter}' unavailable. Using free fallback.")
                 use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
             else:
-                routed_key_letter = route_choice(prompt, allowed_standard_models, chat_history)
-                if st.session_state.get("api_key_auth_failed"): st.error("API Auth failed during model routing. Check Key in Settings.")
-                elif routed_key_letter == FALLBACK_MODEL_KEY: 
-                    logging.warning(f"Router chose FALLBACK_MODEL_KEY. Using free fallback: {FALLBACK_MODEL_ID}.")
-                    st.warning(f"{FALLBACK_MODEL_EMOJI} Router determined no standard models suitable. Using free fallback.")
-                    use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
-                elif routed_key_letter not in MODEL_MAP or not is_model_available(routed_key_letter): 
-                    logging.warning(f"Router chose '{routed_key_letter}' (invalid or no quota/unavailable after check). Using free fallback {FALLBACK_MODEL_ID}.")
-                    st.warning(f"{FALLBACK_MODEL_EMOJI} Model routing issue or chosen model '{routed_key_letter}' unavailable. Using free fallback.")
-                    use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
-                else: 
-                    chosen_model_key = routed_key_letter
-                    model_id_to_use = MODEL_MAP[chosen_model_key]
-                    max_tokens_api = MAX_TOKENS[chosen_model_key]
-                    avatar_resp = EMOJI.get(chosen_model_key, "🤖")
-            
-            if not model_id_to_use and not st.session_state.get("api_key_auth_failed"):
-                 logging.error("No model_id_to_use, but API key auth not flagged. Using fallback.")
-                 st.warning(f"{FALLBACK_MODEL_EMOJI} Unexpected issue selecting model. Using free fallback.")
-                 use_fallback, chosen_model_key, model_id_to_use, max_tokens_api, avatar_resp = (True, FALLBACK_MODEL_KEY, FALLBACK_MODEL_ID, FALLBACK_MODEL_MAX_TOKENS, FALLBACK_MODEL_EMOJI)
+                # Routing successful to an available standard model
+                chosen_model_key = routed_key_letter
+                model_id_to_use = MODEL_MAP[chosen_model_key]
+                max_tokens_api = MAX_TOKENS.get(chosen_model_key, FALLBACK_MODEL_MAX_TOKENS) # Use fallback max tokens if not found
+                avatar_resp = EMOJI.get(chosen_model_key, "🤖") # Use specific emoji or default
 
-            if model_id_to_use:
+            # If a model has been determined (either routed or fallback) and API isn't auth-failed
+            if model_id_to_use and not st.session_state.get("api_key_auth_failed"):
+                # --- START DEBUG SECTION 4 ---
+                # This expander is CRITICAL for debugging the high token count issue
+                # It shows the exact messages list and other parameters sent to the main model API call
+                with st.expander(f"DEBUG: Payload for MAIN MODEL CALL ({model_id_to_use})", expanded=True, icon="🐞"): # Keep expanded by default
+                    st.subheader("`messages` list being sent to API (`streamed` function)")
+                    # **EXAMINE THIS JSON CAREFULLY IN A NEW CHAT WITH "test"**
+                    # It should only contain [{"role": "user", "content": "test"}]
+                    st.json(chat_history)
+                    st.subheader("`model` ID")
+                    st.text(model_id_to_use)
+                    st.subheader("`max_tokens` (output limit)")
+                    st.text(max_tokens_api)
+                # --- END DEBUG SECTION 4 ---
+
+                # Stream the response from the chosen model
                 with st.chat_message("assistant", avatar=avatar_resp):
                     response_placeholder, full_response = st.empty(), ""
                     api_call_ok = True
+                    # Pass the chat_history list to the streamed function
                     for chunk_content, err_msg in streamed(model_id_to_use, chat_history, max_tokens_api):
                         if st.session_state.get("api_key_auth_failed"):
                             full_response = "❗ **API Authentication Error**: Update Key in ⚙️ Settings."
-                            api_call_ok = False; break
-                        if err_msg: full_response = f"❗ **API Error**: {err_msg}"; api_call_ok = False; break
-                        if chunk_content: full_response += chunk_content; response_placeholder.markdown(full_response + "▌")
-                    response_placeholder.markdown(full_response)
-                
+                            api_call_ok = False; break # Stop processing stream
+                        if err_msg:
+                            full_response = f"❗ **API Error**: {err_msg}"
+                            api_call_ok = False; break # Stop processing stream
+                        if chunk_content:
+                            full_response += chunk_content
+                            response_placeholder.markdown(full_response + "▌") # Display intermediate response with cursor
+
+                    response_placeholder.markdown(full_response) # Display final response
+
+                # Retrieve and log token usage after the stream is complete
                 last_usage = st.session_state.pop("last_stream_usage", None)
                 prompt_tokens_used = 0
                 completion_tokens_used = 0
+
+                # --- START DEBUG SECTION 5 ---
+                # This expander is CRITICAL for debugging the high token count issue
+                # It shows the exact usage reported by the API
+                with st.expander("DEBUG: API Usage Reported", expanded=True, icon="🐞"): # Keep expanded by default
+                    st.subheader("`usage` object from API response (last chunk)")
+                    if last_usage:
+                        st.json(last_usage)
+                        prompt_tokens_reported = last_usage.get('prompt_tokens', 'N/A')
+                        completion_tokens_reported = last_usage.get('completion_tokens', 'N/A')
+                        st.write(f"Prompt Tokens Reported: **{prompt_tokens_reported}**")
+                        st.write(f"Completion Tokens Reported: **{completion_tokens_reported}**")
+                    else:
+                        st.warning("No `usage` object found in session state after stream.")
+                # --- END DEBUG SECTION 5 ---
+
                 if last_usage:
                     prompt_tokens_used = last_usage.get("prompt_tokens", 0)
                     completion_tokens_used = last_usage.get("completion_tokens", 0)
-                    logging.info(f"API call completed. Tokens used: Prompt={prompt_tokens_used}, Completion={completion_tokens_used}")
+                    logging.info(f"API call completed for model {model_id_to_use}. Tokens used: Prompt={prompt_tokens_used}, Completion={completion_tokens_used}")
                 else:
-                    logging.warning(f"Token usage information not found in session state after stream for model {model_id_to_use}.")
+                    logging.warning(f"Token usage information not found in session state after stream for model {model_id_to_use}. Cannot record usage accurately.")
 
+                # Append assistant response to chat history
                 chat_history.append({
                     "role": "assistant",
                     "content": full_response,
-                    "model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY,
-                    "prompt_tokens": prompt_tokens_used if api_call_ok else 0,
+                    "model": chosen_model_key if api_call_ok else FALLBACK_MODEL_KEY, # Store the key of the model used
+                    "prompt_tokens": prompt_tokens_used if api_call_ok else 0, # Record usage only if API call was OK
                     "completion_tokens": completion_tokens_used if api_call_ok else 0
                 })
 
+                # --- START DEBUG SECTION 6 ---
+                with st.expander("DEBUG: State After Assistant Response", expanded=False, icon="🐞"):
+                    st.subheader("`chat_history` (sessions[current_sid]['messages']) after appending assistant response")
+                    st.json(sessions[current_sid]["messages"])
+                # --- END DEBUG SECTION 6 ---
+
+
+                # Record usage and save session if the API call was successful (api_call_ok)
                 if api_call_ok:
+                    # Only record usage for standard models, not the router or the fallback model itself (as it's free)
                     if not use_fallback and chosen_model_key and chosen_model_key in MODEL_MAP:
                        record_use(chosen_model_key, prompt_tokens_used, completion_tokens_used)
-                    if sessions[current_sid]["title"] == "New chat" and prompt:
+
+                    # Autotitle the chat if it was a "New chat" and the first prompt was successful
+                    if sessions[current_sid]["title"] == "New chat" and prompt and full_response: # Only autotitle if there's a valid prompt/response
                        sessions[current_sid]["title"] = _autoname(prompt)
-                       _delete_unused_blank_sessions(keep_sid=current_sid) 
-                _save(SESS_FILE, sessions); st.rerun() 
-            elif st.session_state.get("api_key_auth_failed"): time.sleep(0.5); st.rerun()
-            else: st.error("Unexpected error: Could not determine a model."); logging.error("Reached unexpected state: no model_id and no API auth failure.")
+                       # No need to delete blank sessions here, _new_sid handles it on creation
+
+                # Always save the session state after a message exchange attempt
+                _save(SESS_FILE, sessions)
+
+                # Rerun to clear the input and update the UI (like sidebar titles)
+                st.rerun()
+
+            elif st.session_state.get("api_key_auth_failed"):
+                # If API auth failed, wait briefly before rerunning to show the error
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                # This block should ideally not be reached if model selection logic is sound
+                st.error("Unexpected error: Could not determine a model to use.")
+                logging.error("Reached unexpected state: no model_id and no API auth failure after model selection logic.")
+                # Save state with only user message, rerun
+                _save(SESS_FILE, sessions)
+                st.rerun()
+
+# Ensure session state and saved data are consistent on initial load/rerun
+# This check is handled implicitly by _new_sid and the sid existence check at the start of the else block
+
+# Clean up any blank sessions that might exist if the user navigates away from them
+# This could be done periodically or on startup/shutdown, but doing it on new chat and session switch is sufficient.
+# _delete_unused_blank_sessions(keep_sid=st.session_state.sid) # Already called in _new_sid and session switch logic
