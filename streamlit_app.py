@@ -1335,7 +1335,7 @@ else:
 
     chat_history = sessions[current_sid]["messages"]
 
-    # --- Display Existing Chat Messages ---
+      # --- Display Existing Chat Messages ---
     # Ensure chat_history is a list (it should be based on earlier code)
     if not isinstance(chat_history, list):
         logging.error(f"CRITICAL: chat_history for SID {current_sid} is not a list! Type: {type(chat_history)}. Resetting to empty list.")
@@ -1367,14 +1367,14 @@ else:
              role="assistant" # Display non-user/assistant as assistant for now
              avatar_char = "⚙️" # System/other avatar
 
-        # Add message index to key on the container to ensure uniqueness if content is identical
         # Ensure role and avatar_char are valid before calling chat_message
+        # Note: st.chat_message uses 'name' for the role argument.
         if not isinstance(role, str) or not isinstance(avatar_char, (str, type(None))):
              logging.warning(f"Skipping message at index {msg_idx} for SID {current_sid} due to invalid role/avatar. Role: {role}, Avatar: {avatar_char}")
              continue # Skip invalid message
 
-      
-with st.chat_message(name=role, avatar=avatar_char): # <-- Removed key argument
+        # Use st.chat_message without the 'key' argument
+        with st.chat_message(name=role, avatar=avatar_char): # Key argument removed here
             # Display the content using markdown
             content_to_display = msg.get("content", "*empty message*")
             if not isinstance(content_to_display, str):
