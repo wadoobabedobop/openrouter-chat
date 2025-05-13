@@ -99,7 +99,7 @@ ROUTER_MODEL_GUIDANCE_SENSITIVE = {
     "A": "(Model A: High Capability [Cost Rank 5/9]) Use for complex non-search tasks. **Suitable for sensitive/crisis topics if E is unavailable.** Cheaper than E, C.",
     "B": "(Model B: Mid-Tier [Cost Rank 4/9]) Use for general moderate non-search tasks. Suitable for *mild-to-moderate* sensitivity. **Generally AVOID for severe crisis/self-harm unless E, A, C are all unavailable.** Cheaper than A, H, I, E, C.",
     "C": "(Model C: Polished, HIGHEST COST [Cost Rank 9/9]) Avoid unless extreme polish is essential AND cheaper options inadequate. **Can be a fallback for crisis if E and A are unavailable.**",
-    "D": "(Model D: Factual/Technical [Cost Rank 3/9]) Use for factual/code tasks if F/G are insufficient. **NOT suitable for sensitive topics.** Slow.",
+    "D": "(Model D: Factual/Technical [Cost Rank 3/9]) Use for factual/code tasks if F/G are insufficient. **NOT suitable for sensitive topics.** Slow, but very good at writing.",
     "E": "(Model E: Novel & Nuanced, High Cost [Cost Rank 8/9]) Use for unique creative non-search tasks OR **handling serious sensitive topics/crisis situations.** **Preferred choice for crisis if available.** Cheaper than C.",
     "F": "(Model F: CHEAPEST [Cost Rank 1/9]) Use ONLY for simple, low-stakes, **NON-SEARCH**, non-sensitive tasks. ***DO NOT USE 'F' IF*** query involves: search, complexity, sensitivity (esp. crisis/safety), math, deep analysis, high accuracy needs.",
     # --- Search Guidance ---
