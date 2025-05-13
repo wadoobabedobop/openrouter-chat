@@ -46,7 +46,7 @@ MODEL_MAP = {
 }
 # ROUTER_MODEL_ID = "mistralai/mistral-7b-instruct:free"
 # ROUTER_MODEL_ID = "nousresearch/deephermes-3-mistral-24b-preview:free" # Seems reliable
-ROUTER_MODEL_ID = "openai/chatgpt-4o-latest" # Try the best router, cost is minimal
+ROUTER_MODEL_ID = "nousresearch/deephermes-3-mistral-24b-preview:free" # Try the best router, cost is minimal
 MAX_HISTORY_CHARS_FOR_ROUTER = 3000  # Approx. 750 tokens for history context
 
 MAX_TOKENS = { # Per-call max_tokens for API request (max output generation length)
