@@ -62,11 +62,11 @@ MAX_TOKENS = { # Per-call max_tokens for API request (max output generation leng
 # Format: (DailyMsgs, MonthlyMsgs, DailyInTok, MonthlyInTok, DailyOutTok, MonthlyOutTok, 3hrMsgs, 3hrWindowSec)
 # Costs roughly: F < G < D < B < A ≈ H ≈ I < E < C
 NEW_PLAN_CONFIG = {
-    "A": (10, 200, 5000, 100000, 5000, 100000, 3, 3 * 3600), # Gemini Pro
+    "A": (5, 200, 5000, 100000, 5000, 100000, 3, 3 * 3600), # Gemini Pro
     "B": (10, 200, 5000, 100000, 5000, 100000, 0, 0),       # o4-mini
-    "C": (10, 200, 5000, 100000, 5000, 100000, 0, 0),       # GPT-4o
+    "C": (5, 200, 5000, 100000, 5000, 100000, 0, 0),       # GPT-4o
     "D": (10, 200, 5000, 100000, 5000, 100000, 0, 0),       # DeepSeek R1
-    "E": (10, 200, 5000, 100000, 5000, 100000, 0, 0),       # Sonnet
+    "E": (5, 200, 5000, 100000, 5000, 100000, 0, 0),       # Sonnet
     "F": (150, 3000, 75000, 1500000, 75000, 1500000, 0, 0), # Flash
     # --- Search Model Quotas ---
     "G": (50, 1000, 20000, 400000, 20000, 400000, 0, 0),    # Sonar (cheaper, higher volume)
