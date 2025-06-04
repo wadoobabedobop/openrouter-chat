@@ -519,20 +519,44 @@ def streamed(model: str, messages: list, max_tokens_out: int):
     except Exception as e: logging.exception(f"Unexpected error during streamed API call: {e}"); yield None, f"An unexpected error occurred: {e}"
 
 # ------------------------- Model Routing (REVISED V4 - Incorporates Search) -----------------------
-def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
-    # Determine fallback choice (unchanged)
-    non_search_allowed = [k for k in allowed if k in "ABCDEF"]
-    search_allowed = [k for k in allowed if k in "GHI"]
 
-    # Prioritize cheapest non-search or search if available
-    if "F" in non_search_allowed: fallback_choice_letter = "F"
-    elif "G" in search_allowed: fallback_choice_letter = "G" # Cheap search as potential fallback
-    elif non_search_allowed: fallback_choice_letter = non_search_allowed[0] # First available non-search
-    elif search_allowed: fallback_choice_letter = search_allowed[0] # First available search
-    elif "F" in MODEL_MAP: fallback_choice_letter = "F" # Config fallback non-search
-    elif "G" in MODEL_MAP: fallback_choice_letter = "G" # Config fallback search
-    elif MODEL_MAP: fallback_choice_letter = list(MODEL_MAP.keys())[0] # Absolute fallback
-    else:
+def _pick_fallback_model(allowed: list[str]) -> str:
+    """Return the best fallback model letter from the allowed list."""
+    allowed = list(dict.fromkeys(allowed))
+    non_search = [k for k in allowed if k in "ABCDEF"]
+    search = [k for k in allowed if k in "GHI"]
+
+    if "F" in non_search:
+        return "F"
+    if "G" in search:
+        return "G"
+    if non_search:
+        return non_search[0]
+    if search:
+        return search[0]
+    if "F" in MODEL_MAP:
+        return "F"
+    if "G" in MODEL_MAP:
+        return "G"
+    return next(iter(MODEL_MAP), FALLBACK_MODEL_KEY)
+
+
+def _extract_letter(resp: str, allowed: list[str]) -> str | None:
+    """Parse router response text and return the first allowed letter if any."""
+    resp = (resp or "").upper()
+    if resp in allowed:
+        return resp
+    for char in resp:
+        if char in allowed:
+            return char
+    return None
+
+
+def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
+    # Determine fallback choice using helper
+    fallback_choice_letter = _pick_fallback_model(allowed)
+
+    if not MODEL_MAP:
         logging.error("Router: No models configured. Using FALLBACK_MODEL_KEY.")
         return FALLBACK_MODEL_KEY
 
@@ -625,18 +649,9 @@ def route_choice(user_msg: str, allowed: list[str], chat_history: list) -> str:
         raw_text_response = choice_data.get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
         logging.info(f"Router raw text response: '{raw_text_response}' for query: '{user_msg[:100]}...'")
 
-        chosen_model_letter = None
-        # Prioritize exact match first from the response
-        if raw_text_response in allowed:
-             chosen_model_letter = raw_text_response
-             logging.info(f"Router selected model '{chosen_model_letter}' (exact match in response, allowed: {allowed})")
-        else:
-             # If no exact match, check if *any* character in the response is an allowed letter
-             for char_in_response in raw_text_response:
-                 if char_in_response in allowed:
-                     chosen_model_letter = char_in_response
-                     logging.info(f"Router selected model '{chosen_model_letter}' (found char '{char_in_response}' in response '{raw_text_response}', allowed: {allowed})")
-                     break
+        chosen_model_letter = _extract_letter(raw_text_response, allowed)
+        if chosen_model_letter:
+            logging.info(f"Router selected model '{chosen_model_letter}' from response '{raw_text_response}'")
 
         if chosen_model_letter:
             # Final check: if the chosen model is NOT available (e.g., quota hit *during* routing), fall back.
@@ -794,6 +809,11 @@ PLACEHOLDER_ROOT_COLORS
             display: flex;
             align-items: center;
             margin-bottom: var(--spacing-md);
+        }
+        .sidebar-title-container h1 {
+            background: linear-gradient(90deg, var(--app-primary-color), var(--app-primary-hover-color));
+            -webkit-background-clip: text;
+            color: transparent;
         }
 
         [data-testid="stSidebar"] .stButton > button {
