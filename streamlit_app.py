@@ -99,7 +99,7 @@ ROUTER_MODEL_GUIDANCE_SENSITIVE = {
     "A": "(Model A: High Capability [Cost Rank 5/9]) Use for complex non-search tasks. **Suitable for sensitive/crisis topics if E is unavailable.** Cheaper than E, C.",
     "B": "(Model B: Mid-Tier [Cost Rank 4/9]) Use for general moderate non-search tasks. Suitable for *mild-to-moderate* sensitivity. **Generally AVOID for severe crisis/self-harm unless E, A, C are all unavailable.** Cheaper than A, H, I, E, C.",
     "C": "(Model C: Polished, HIGHEST COST [Cost Rank 9/9]) Avoid unless extreme polish is essential AND cheaper options inadequate. **Can be a fallback for crisis if E and A are unavailable.**",
-    "D": "(Model D: Factual/Technical [Cost Rank 3/9]) Use for factual/code tasks if F/G are insufficient. **NOT suitable for sensitive topics.** Slow, but very good at writing.",
+    "D": "(Model D: Factual/Technical [Cost Rank 3/9]) Use for factual/code tasks if F/G are insufficient. **NOT suitable for sensitive topics.** Slow.",
     "E": "(Model E: Novel & Nuanced, High Cost [Cost Rank 8/9]) Use for unique creative non-search tasks OR **handling serious sensitive topics/crisis situations.** **Preferred choice for crisis if available.** Cheaper than C.",
     "F": "(Model F: CHEAPEST [Cost Rank 1/9]) Use ONLY for simple, low-stakes, **NON-SEARCH**, non-sensitive tasks. ***DO NOT USE 'F' IF*** query involves: search, complexity, sensitivity (esp. crisis/safety), math, deep analysis, high accuracy needs.",
     # --- Search Guidance ---
@@ -135,9 +135,12 @@ def _ymonth():   return datetime.now(TZ).strftime("%Y-%m")
 def _load_app_config():
     return _load(CONFIG_FILE, {})
 
-def _save_app_config(api_key_value: str):
+def _save_app_config(api_key_value: str = None, dark_mode_value: bool = None):
     config_data = _load_app_config()
-    config_data["openrouter_api_key"] = api_key_value
+    if api_key_value is not None:
+        config_data["openrouter_api_key"] = api_key_value
+    if dark_mode_value is not None:
+        config_data["dark_mode"] = bool(dark_mode_value)
     _save(CONFIG_FILE, config_data)
 
 def format_token_count(num):
@@ -703,23 +706,42 @@ def get_credits():
 
 # ------------------------- UI Styling (Unchanged - CSS handles general elements) --------------------------
 def load_custom_css():
-    # CSS remains the same - it styles elements generically
-    css = """
-    <style>
-        :root {
-            /* Core Colors */
-            --app-bg-color: #F8F9FA; /* Lighter, softer background */
-            --app-secondary-bg-color: #FFFFFF; /* White for secondary elements like sidebar, cards */
-            --app-text-color: #212529; /* Darker grey for better contrast */
-            --app-text-secondary-color: #6C757D; /* Lighter grey for secondary text */
-            --app-primary-color: #007BFF; /* Standard Bootstrap blue */
+    """Inject custom CSS. Uses dark or light theme based on session state."""
+    dark = st.session_state.get("dark_mode", False)
+    if dark:
+        root_colors = """
+            --app-bg-color: #121212;
+            --app-secondary-bg-color: #1f1f1f;
+            --app-text-color: #E4E4E4;
+            --app-text-secondary-color: #A1A1A1;
+            --app-primary-color: #0d6efd;
+            --app-primary-hover-color: #0b5ed7;
+            --app-divider-color: #343a40;
+            --app-border-color: #495057;
+            --app-success-color: #198754;
+            --app-warning-color: #FFC107;
+            --app-danger-color: #DC3545;
+        """
+    else:
+        root_colors = """
+            --app-bg-color: #F8F9FA;
+            --app-secondary-bg-color: #FFFFFF;
+            --app-text-color: #212529;
+            --app-text-secondary-color: #6C757D;
+            --app-primary-color: #007BFF;
             --app-primary-hover-color: #0056b3;
-            --app-divider-color: #DEE2E6; /* Lighter divider */
-            --app-border-color: #CED4DA; /* Softer border for inputs etc. */
+            --app-divider-color: #DEE2E6;
+            --app-border-color: #CED4DA;
             --app-success-color: #28A745;
             --app-warning-color: #FFC107;
             --app-danger-color: #DC3545;
+        """
 
+    css_template = """
+    <style>
+        :root {
+            /* Core Colors */
+PLACEHOLDER_ROOT_COLORS
             --border-radius-sm: 0.2rem;
             --border-radius-md: 0.25rem;
             --border-radius-lg: 0.3rem;
@@ -837,7 +859,7 @@ def load_custom_css():
         }
         [data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] {
             padding: var(--spacing-sm) !important;
-             background-color: color-mix(in srgb, var(--app-bg-color) 50%, var(--app-secondary-bg-color) 50%); /* Slightly different from expander summary */
+            background-color: color-mix(in srgb, var(--app-bg-color) 50%, var(--app-secondary-bg-color) 50%);
             border-bottom-left-radius: var(--border-radius-md); border-bottom-right-radius: var(--border-radius-md);
         }
         /* Specific styling for compact quota gauges */
@@ -981,12 +1003,15 @@ def load_custom_css():
         }
     </style>
     """
+    css = css_template.replace("PLACEHOLDER_ROOT_COLORS", root_colors)
     st.markdown(css, unsafe_allow_html=True)
 
-# ----------------- API Key State Initialization (Unchanged) -------------------
+# ----------------- State Initialization (API Key & Theme) -------------------
+app_conf = _load_app_config()
 if "openrouter_api_key" not in st.session_state:
-    app_conf = _load_app_config()
     st.session_state.openrouter_api_key = app_conf.get("openrouter_api_key", None)
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = app_conf.get("dark_mode", False)
 if "api_key_auth_failed" not in st.session_state: st.session_state.api_key_auth_failed = False
 api_key_is_syntactically_valid = is_api_key_valid(st.session_state.get("openrouter_api_key"))
 app_requires_api_key_setup = (
@@ -1011,7 +1036,7 @@ if app_requires_api_key_setup:
     if st.button("Save and Validate API Key", key="save_api_key_setup_button", use_container_width=True, type="primary"):
         if is_api_key_valid(new_key_input_val):
             st.session_state.openrouter_api_key = new_key_input_val
-            _save_app_config(new_key_input_val)
+            _save_app_config(api_key_value=new_key_input_val)
             st.session_state.api_key_auth_failed = False
             with st.spinner("Validating API Key..."): fetched_credits_data = get_credits()
             if st.session_state.get("api_key_auth_failed"): st.error("Authentication failed with the provided API Key. Please check the key and try again.")
@@ -1024,6 +1049,13 @@ if app_requires_api_key_setup:
                 time.sleep(1.0); st.rerun()
         elif not new_key_input_val: st.warning("API Key field cannot be empty.")
         else: st.error("Invalid API key format. It must start with 'sk-or-'.")
+
+    dark_setup = st.checkbox("Enable dark mode", value=st.session_state.get("dark_mode", False), key="dark_mode_setup")
+    if dark_setup != st.session_state.get("dark_mode"):
+        st.session_state.dark_mode = dark_setup
+        _save_app_config(dark_mode_value=dark_setup)
+        st.rerun()
+
     st.markdown("---", unsafe_allow_html=True); st.caption("Your API key is stored locally in `app_config.json`.")
 
 # --- Main App Logic (Executes only if API key setup is NOT required) ---
@@ -1075,7 +1107,7 @@ else:
             if st.button("Save New API Key", key="save_api_key_sidebar_button", use_container_width=True):
                 if is_api_key_valid(new_key_input_sidebar):
                     st.session_state.openrouter_api_key = new_key_input_sidebar
-                    _save_app_config(new_key_input_sidebar)
+                    _save_app_config(api_key_value=new_key_input_sidebar)
                     st.session_state.api_key_auth_failed = False
                     with st.spinner("Validating new API key..."): credits_data = get_credits()
                     if st.session_state.get("api_key_auth_failed"): st.error("New API Key failed authentication.")
@@ -1085,6 +1117,12 @@ else:
                     time.sleep(0.8); st.rerun()
                 elif not new_key_input_sidebar: st.warning("API Key field empty. No changes made.")
                 else: st.error("Invalid API key format. Must start with 'sk-or-'.")
+
+            dark_mode_toggle = st.checkbox("Enable dark mode", value=st.session_state.get("dark_mode", False), key="dark_mode_toggle")
+            if dark_mode_toggle != st.session_state.get("dark_mode"):
+                st.session_state.dark_mode = dark_mode_toggle
+                _save_app_config(dark_mode_value=dark_mode_toggle)
+                st.rerun()
 
             st.markdown("<hr>", unsafe_allow_html=True)
             st.subheader("📊 Detailed Model Quotas")
