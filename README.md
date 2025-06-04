@@ -1,6 +1,6 @@
 # 🚀 OpenRouter Streamlit Chat - Alpha Beta
 
-[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
+[![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.25%2B-FF4B4B.svg)](https://streamlit.io)
 [![OpenRouter](https://img.shields.io/badge/API-OpenRouter-7A49FF.svg)](https://openrouter.ai)
 [![License: CC0-1.0](https://img.shields.io/badge/License-CC0_1.0-lightgrey.svg)](http://creativecommons.org/publicdomain/zero/1.0/) <!-- Add a LICENSE file -->
@@ -38,7 +38,7 @@ Follow these steps to get the OpenRouter Streamlit Chat app up and running on yo
 
 ### 1. Prerequisites
 
-*   **Python 3.8+**
+*   **Python 3.9+** (uses the standard `zoneinfo` module introduced in Python 3.9)
 *   **Git**
 *   An **OpenRouter API Key** (get yours from [OpenRouter.ai](https://openrouter.ai/keys))
 
