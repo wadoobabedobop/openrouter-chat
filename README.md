@@ -47,3 +47,16 @@ Follow these steps to get the OpenRouter Streamlit Chat app up and running on yo
 ```bash
 git clone https://github.com/YOUR_USERNAME/YOUR_REPOSITORY_NAME.git
 cd YOUR_REPOSITORY_NAME
+```
+
+### 3. Install Dependencies
+
+```bash
+pip install streamlit requests
+```
+
+### 4. Run the App
+
+```bash
+streamlit run streamlit_app.py
+```
