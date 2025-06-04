@@ -13,7 +13,7 @@ Experience designed for power users and developers who want fine-grained control
 
 ## ✨ Features
 
-*   🎨 **Sleek, Modern UI:** It has dark mode, be grateful.
+*   🎨 **Sleek, Modern UI:** Now includes a user-selectable dark mode.
 *   🧠 **Intelligent Model Routing:** Don't just pick a model; let an AI choose the *best* model for your query, lower the cost at the price of twice the cost!
 *   📊 **Comprehensive Quota Management:** Usage limits for different models to manage costs and API access effectively.
 *   💾 **Persistent Chat Sessions:** Conversations are automatically saved and can be revisited. Blank, unused sessions are auto-cleaned.
