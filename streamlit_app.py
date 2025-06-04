@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*- # THIS SHOULD BE LINE 2
+# -*- coding: utf-8 -*-
 """
 OpenRouter Streamlit Chat — Full Edition + Search
 • Persistent chat sessions
